@@ -67,7 +67,7 @@ app.listen(3000);
 - 🧩 **Strategy Pattern** — Plug in only the auth methods your app needs
 - 🛡️ **Middleware** — JWT verification middleware (cookie or `Authorization: Bearer`)
 - 🚠 **Express Router** — Drop-in `/auth` router with all endpoints pre-wired
-- 📝 **Register Endpoint** — Optional `POST /auth/register` via `onRegister` callback
+- 📝 **Register Endpoint** — `POST /auth/register` with a default handler, or your own via the `onRegister` callback
 - 👤 **Rich `/me` Profile** — Returns profile, metadata, roles, and permissions
 - 🗩 **Session Cleanup** — Optional `POST /auth/sessions/cleanup` for cron-based expiry
 - 🔒 **CSRF Protection** — Double-submit cookie pattern, opt-in via `csrf.enabled`
@@ -138,6 +138,13 @@ export class MyUserStore implements IUserStore {
    * to) `findByEmail` in `findOrCreateUser` to prevent account-takeover attacks.
    */
   async findByProviderAccount(provider: string, providerAccountId: string): Promise<BaseUser | null> { /* ... */ }
+
+  /**
+   * Optional. Apply a partial update to the user record.
+   * Required for: `promoteToAdmin` / `revokeAdmin` with `method: 'flag'` and
+   * `POST /admin/users/:id/promote` with `{ "method": "flag" }` (sets `isAdmin`).
+   */
+  async update(userId: string, patch: Partial<BaseUser>): Promise<void> { /* ... */ }
 }
 ```
 
@@ -1128,7 +1135,7 @@ await userStore.create({
 
 ## User Registration
 
-`POST /auth/register` is **optional** — it is only mounted when you provide an `onRegister` callback in `RouterOptions`. This lets you opt out of self-registration entirely for projects where it is not needed.
+`POST /auth/register` is mounted whenever a registration handler is available (never in Resource Server mode): the `onRegister` callback in `RouterOptions` when you provide one, otherwise the [default handler](#default-register-handler) as long as your `IUserStore` implements `create`.
 
 The callback receives three arguments: `(data, config, options)` where `options` is the `RouterOptions` object passed to `createAuthRouter`. Use `buildUiLink` to generate correct redirect URLs regardless of whether the built-in UI is enabled:
 
@@ -1182,7 +1189,19 @@ app.use('/auth', auth.router({
 
 After creating the user, if `config.email.sendWelcome` or `config.email.mailer` is configured, a welcome email is sent automatically.
 
-> **Tip:** Omit `onRegister` entirely for admin-only or invite-only systems where users should not be able to sign up themselves.
+> **Tip:** Omitting `onRegister` does **not** disable self-registration when `userStore.create` is implemented — the default handler below is mounted instead. For admin-only or invite-only systems, pass an `onRegister` that rejects the request, e.g. `onRegister: async () => { throw new AuthError('Registration is disabled', 'REGISTRATION_DISABLED', 403); }`.
+
+### Default register handler
+
+When `onRegister` is omitted and `userStore.create` is implemented, the router mounts `POST /auth/register` with a built-in handler and writes an `INFO` line to `stderr` at startup (a `WARN` line when neither is available and the route is not mounted). The handler:
+
+1. requires `email` and `password` to be non-empty strings — otherwise `400` with code `INVALID_INPUT`;
+2. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
+3. calls `userStore.create({ ...body, email, password: hash })` — **the whole request body is forwarded** to `create`, with `password` replaced by its hash.
+
+The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active.
+
+> **Security:** since the request body is forwarded as-is, `create` receives any field the client sends (for example `id`, `isAdmin` or `isEmailVerified`). Unless your `create` persists only the fields you accept, provide an `onRegister` callback that picks them explicitly, as in the example above.
 
 ## Session Cleanup (Cron)
 
@@ -2241,6 +2260,7 @@ findByEmailChangeToken(token): Promise<U | null>
    - A 1-hour token is generated, stored via `updateEmailChangeToken`, and a verification email is sent to the **new address**.
 2. User clicks the link; it points to `POST /auth/change-email/confirm` with `{ "token": "..." }`.  
    - The library calls `updateEmail` (commits the change) and sends an email-changed notification to the **old address** via `sendEmailChanged`.
+   - When an `eventBus` is configured, the router then publishes `USER_EMAIL_CHANGED` (`identity.user.email.changed`) with `data: { oldEmail, newEmail }` (see [Automatic event publication](#automatic-event-publication)).
 
 ```typescript
 // 1. Request change
@@ -2760,6 +2780,86 @@ The upload-related admin REST API endpoints (only available when `uploadDir` is 
 | `GET` | `/admin/api/upload/files` | List uploaded files in `uploadDir` |
 | `DELETE` | `/admin/api/upload/files/:filename` | Delete an uploaded file from `uploadDir` |
 
+### Mounting auth and admin together — `buildAllRouters()`
+
+`AuthConfigurator.buildAllRouters(options)` returns one router that mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin`. Mount it at the application root:
+
+```typescript
+import { AuthConfigurator, AuthEventBus } from 'awesome-node-auth';
+
+const eventBus = new AuthEventBus();
+const auth = new AuthConfigurator(config, userStore, { eventBus }); // AuthConfiguratorOptions
+
+app.use(auth.buildAllRouters({
+  auth: { rateLimiter: limiter },  // optional — RouterOptions for the auth router
+  admin: {                         // required — AdminOptions for the admin router
+    accessPolicy: 'first-user',
+    sessionStore,
+    rbacStore,
+  },
+}));
+// /auth/*        → auth router
+// /auth/admin/*  → admin panel + REST API
+```
+
+`BuildAllRoutersOptions`:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `auth` | `RouterOptions` | Optional. Passed to `auth.router()`. The mount prefix is `auth.apiPrefix`, else `AuthConfig.apiPrefix`, else `'/auth'` (trailing slash removed). |
+| `admin` | `AdminOptions` | Required. Passed to `createAdminRouter()` with `jwtSecret` defaulting to `AuthConfig.accessTokenSecret` and `eventBus` defaulting to the configurator's `eventBus`. `apiPrefix` is always set to the resolved auth prefix. |
+
+`AuthConfiguratorOptions` (third constructor argument) currently holds one field, `eventBus?: AuthEventBus`. It is passed to `auth.router()` unless `RouterOptions.eventBus` is set, to the admin router by `buildAllRouters()`, and used by `promoteToAdmin()` / `revokeAdmin()` — see [Automatic event publication](#automatic-event-publication).
+
+Unless `loginPath` redirects elsewhere, the admin panel shows its own sign-in form for operators (served at `<apiPrefix>/admin/`, posting to `<apiPrefix>/admin/login`); end users sign in at `<apiPrefix>/ui/login`. Keep the two audiences separate.
+
+### Admin access policy and `AuthorizedAdminUser`
+
+Before evaluating `accessPolicy`, the guard loads the user's roles with `rbacStore.getRolesForUser(user.id)` (when `rbacStore` is configured; a failed lookup yields `[]`) and builds an `AuthorizedAdminUser` — `BaseUser & { roles: string[] }`. A custom policy function receives it, and it is stored on `req.user` for the admin handlers. A root/bootstrap session gets `roles: ['admin']`.
+
+```typescript
+import { createAdminRouter, AuthorizedAdminUser } from 'awesome-node-auth';
+
+app.use('/admin', createAdminRouter(userStore, {
+  jwtSecret: process.env.ACCESS_TOKEN_SECRET!,
+  rbacStore,
+  accessPolicy: (user: AuthorizedAdminUser) => user.roles.includes('admin'),
+}));
+```
+
+### Promoting and revoking admins — `promoteToAdmin()` / `revokeAdmin()`
+
+`AuthConfigurator` has two helpers to bootstrap or remove admin access from code (seed scripts, CLI tasks):
+
+```typescript
+// Role-based (default) — pairs with a policy that checks user.roles
+await auth.promoteToAdmin(userId, { rbacStore });
+
+// Flag-based — sets isAdmin, pairs with accessPolicy: 'is-admin-flag'
+await auth.promoteToAdmin(userId, { method: 'flag' });
+
+// Revoke — method 'role' (default), 'flag' or 'both'
+await auth.revokeAdmin(userId, { method: 'both', rbacStore });
+```
+
+| `method` | `promoteToAdmin(userId, { method, rbacStore })` | `revokeAdmin(userId, { method, rbacStore })` |
+|----------|-------------------------------------------------|----------------------------------------------|
+| `'role'` *(default)* | `rbacStore.createRole('admin')`, then `rbacStore.addRoleToUser(userId, 'admin')` | `rbacStore.removeRoleFromUser(userId, 'admin')` |
+| `'flag'` | `userStore.update(userId, { isAdmin: true })` | `userStore.update(userId, { isAdmin: false })` |
+| `'both'` | — | both of the above; the flag step is skipped when `IUserStore.update` is not implemented |
+
+Both helpers throw when the method needs a store that is missing (`rbacStore` for `'role'`/`'both'`, `IUserStore.update` for `'flag'`). `createRole('admin')` runs on every role-based promotion, so `IRolesPermissionsStore.createRole` must tolerate an existing role. With an `eventBus` on the configurator, `promoteToAdmin` publishes `ROLE_ASSIGNED` and `revokeAdmin` publishes `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
+
+Over HTTP, the admin router exposes the same promotion as `POST /admin/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
+
+### Admin router options — `eventBus`, `rateLimiter`, `silent`
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `eventBus` | `AuthEventBus` | Publishes `ROLE_ASSIGNED` / `ROLE_REVOKED` from the role and promote endpoints. Defaulted by `buildAllRouters()` |
+| `rateLimiter` | `RequestHandler` | Applied to sensitive admin mutations — currently `POST /admin/users/:id/promote` |
+| `silent` | `boolean` | Suppresses the startup `INFO` line (on `stderr`) listing the enabled and disabled admin tabs |
+
 ### Admin REST API
 
 Most admin API endpoints require an active session where the user satisfies the `accessPolicy`.
@@ -2774,6 +2874,7 @@ Unauthenticated requests will receive a 401 or be redirected.
 | `GET` | `/admin/api/users/:id/roles` | List roles assigned to a user |
 | `POST` | `/admin/api/users/:id/roles` | Assign a role to a user (`{ role, tenantId? }`) |
 | `DELETE` | `/admin/api/users/:id/roles/:role` | Remove a role from a user |
+| `POST` | `/admin/users/:id/promote` | Promote a user to admin (`{ method?: 'role' \| 'flag' }`, default `'role'`) — **no `/api` segment**, see note below |
 | `GET` | `/admin/api/users/:id/metadata` | Get user metadata |
 | `PUT` | `/admin/api/users/:id/metadata` | Replace user metadata (full JSON body) |
 | `GET` | `/admin/api/users/:id/linked-accounts` | List OAuth accounts linked to a user _(requires `linkedAccountsStore`)_ |
@@ -2808,6 +2909,12 @@ Unauthenticated requests will receive a 401 or be redirected.
 | `GET` | `/admin/api/templates/ui` | List all custom UI translations — requires `templateStore` |
 | `POST` | `/admin/api/templates/ui` | Update UI translations for a page — requires `templateStore` |
 
+> **`POST /admin/users/:id/promote`** is registered **without** the `/api` segment used by every other admin REST endpoint (mounted through `buildAllRouters()` the full path is `/auth/admin/users/:id/promote`). It runs the admin `rateLimiter` (when set) and the admin guard, then:
+> - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
+> - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
+>
+> Success: `200 { "success": true, "method": "role" }` (or `"flag"`), plus a `ROLE_ASSIGNED` event when `eventBus` is set. The role-assignment endpoints publish events too: `POST /admin/api/users/:id/roles` → `ROLE_ASSIGNED`, `DELETE /admin/api/users/:id/roles/:role` → `ROLE_REVOKED`.
+
 > **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. Unauthenticated browsers will be automatically redirected to the main app login page (`/auth/ui/login?redirect=/admin`). For further security in production, mount the admin router behind a VPN or IP allow-list.
 
 ## RouterOptions
@@ -2822,7 +2929,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `oauthStrategies` | `GenericOAuthStrategy[]` | Enables `GET /auth/oauth/:name` for any additional provider |
 | `linkedAccountsStore` | `ILinkedAccountsStore` | Enables `GET /auth/linked-accounts`, `DELETE /auth/linked-accounts/:provider/:id`, `POST /auth/link-request`, and `POST /auth/link-verify` |
 | `settingsStore` | `ISettingsStore` | Enables system 2FA policy check in `POST /auth/2fa/disable` |
-| `onRegister` | `(data, config, options) => Promise<BaseUser>` | Enables `POST /auth/register` |
+| `onRegister` | `(data, config, options) => Promise<BaseUser>` | Custom handler for `POST /auth/register`; without it the [default register handler](#default-register-handler) is used when `userStore.create` exists |
 | `metadataStore` | `IUserMetadataStore` | Adds `metadata` field to `GET /me` response |
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |
@@ -2830,6 +2937,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `templateStore` | `ITemplateStore` | Enables dynamic email templates and UI internationalization (v1.6.0) |
 | `swagger` | `boolean \| 'auto'` | Enable Swagger UI + OpenAPI spec. `'auto'` (default) — enabled when `NODE_ENV !== 'production'` |
 | `swaggerBasePath` | `string` | Base path for accurate OpenAPI path entries; must match the mount path (default: `'/auth'`) |
+| `eventBus` | `AuthEventBus` | Publishes the core auth lifecycle events automatically — see [Automatic event publication](#automatic-event-publication). Defaults to the `AuthConfigurator`'s `eventBus` when mounted via `auth.router()` |
 
 Auth routes should be rate-limited in production to prevent brute-force attacks. Pass an optional `rateLimiter` middleware to `createAuthRouter()`:
 
@@ -3194,6 +3302,56 @@ bus.publish(AuthEventNames.AUTH_LOGIN_FAILED, {
 });
 ```
 
+#### Automatic event publication
+
+When an `AuthEventBus` is passed to the routers, they publish the standard events themselves — no `tools.track()` call is needed for these. Pass it once to `AuthConfigurator` (used by `auth.router()`, `buildAllRouters()`, `promoteToAdmin()` and `revokeAdmin()`), or per router:
+
+```ts
+const bus = new AuthEventBus();
+
+const auth = new AuthConfigurator(config, userStore, { eventBus: bus });
+// or
+app.use('/auth', createAuthRouter(userStore, config, { eventBus: bus }));
+app.use('/admin', createAdminRouter(userStore, { accessPolicy: 'first-user', jwtSecret, eventBus: bus }));
+```
+
+Success events are published after the operation has completed. Router events carry `userId` and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header).
+
+**Auth router** (`createAuthRouter` / `auth.router()`):
+
+| Endpoint | Event | `data` |
+|---|---|---|
+| `POST /login` | `AUTH_LOGIN_SUCCESS` | `{ method: 'local' }` — only when tokens are issued (not when a 2FA challenge is returned) |
+| `POST /login` → `401` | `AUTH_LOGIN_FAILED` | `{ method: 'local', email }` |
+| `POST /2fa/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'totp' }` |
+| `POST /magic-link/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'magic-link' }` |
+| `POST /sms/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'sms' }` |
+| `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` |
+| `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, ...conflict details }` (e.g. `email`, `providerAccountId`) |
+| `POST /logout` | `AUTH_LOGOUT` | — |
+| `POST /refresh` | `SESSION_ROTATED` | `{ previousSessionId }` |
+| `POST /register` | `USER_CREATED` | `{ email, method: 'custom' \| 'default' }` |
+| `POST /2fa/verify-setup` | `USER_2FA_ENABLED` | — |
+| `POST /2fa/disable` | `USER_2FA_DISABLED` | — |
+| `POST /change-password` | `USER_PASSWORD_CHANGED` | — |
+| `GET /verify-email` | `USER_EMAIL_VERIFIED` | — |
+| `POST /change-email/confirm` | `USER_EMAIL_CHANGED` | `{ oldEmail, newEmail }` |
+| `DELETE /account` | `USER_DELETED` | — |
+
+An OAuth login that stops at the 2FA challenge does not publish `AUTH_OAUTH_SUCCESS`; it is completed by the second-factor endpoint (`POST /2fa/verify`, `/sms/verify` or `/magic-link/verify`), which publishes `AUTH_LOGIN_SUCCESS`.
+
+**Admin router** (`createAdminRouter`, `AdminOptions.eventBus`):
+
+| Endpoint | Event | `data` |
+|---|---|---|
+| `POST /api/users/:id/roles` | `ROLE_ASSIGNED` | `{ role }` (`tenantId` on the payload when given) |
+| `DELETE /api/users/:id/roles/:role` | `ROLE_REVOKED` | `{ role }` |
+| `POST /users/:id/promote` | `ROLE_ASSIGNED` | `{ role: 'admin', method }` |
+
+**`AuthConfigurator`** (no request context): `promoteToAdmin()` → `ROLE_ASSIGNED`, `revokeAdmin()` → `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
+
+Listeners run synchronously inside the request (`AuthEventBus` is an `EventEmitter`): keep them fast and make sure they do not throw.
+
 ### Standard Event Names
 
 All event names follow the `domain.resource.action` convention:
@@ -3202,6 +3360,7 @@ All event names follow the `domain.resource.action` convention:
 |---|---|
 | `USER_CREATED` | `identity.user.created` |
 | `USER_DELETED` | `identity.user.deleted` |
+| `USER_EMAIL_CHANGED` | `identity.user.email.changed` |
 | `USER_EMAIL_VERIFIED` | `identity.user.email.verified` |
 | `USER_PASSWORD_CHANGED` | `identity.user.password.changed` |
 | `USER_2FA_ENABLED` | `identity.user.2fa.enabled` |
@@ -3290,6 +3449,21 @@ tools.notify('user:123', { message: 'Your password was changed.' }, {
   tenantId: 'acme',
 });
 ```
+
+**Custom distributor for `notify()` — `sseDistributor`:**
+
+```ts
+import { AuthTools, ISseDistributor } from 'awesome-node-auth';
+
+const myDistributor: ISseDistributor = {
+  async publish(topic, event) { await redis.publish('sse', JSON.stringify({ topic, event })); },
+  async subscribe(callback) { /* ... */ },
+};
+
+const tools = new AuthTools(bus, { sseDistributor: myDistributor });
+```
+
+When `sseDistributor` is set, the SSE channel of `tools.notify()` calls `sseDistributor.publish(target, { type, data, tenantId, userId, metadata })` instead of broadcasting through the built-in `SseManager`; the distributor is then responsible for delivering the event. Delivery is best-effort: a rejected `publish()` is ignored. Passing both `sse: true` and `sseDistributor` writes a `WARN` line to `stderr`, and `notify()` uses the distributor. This is different from `sseOptions.distributor`, which keeps the built-in `SseManager` and synchronizes it across instances.
 
 **HTTP API:**
 
