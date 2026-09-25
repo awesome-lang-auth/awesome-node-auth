@@ -3350,7 +3350,7 @@ Success events are published after the operation has completed. Router events ca
 | `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, email, providerAccountId }` — the two conflict fields are picked from the `OAUTH_ACCOUNT_CONFLICT` error's `data` when they are strings; nothing else from it is copied |
 | `POST /logout` | `AUTH_LOGOUT` | — |
 | `POST /refresh` | `SESSION_ROTATED` | `{ previousSessionId }` |
-| `POST /register` | `USER_CREATED` | `{ email, method: 'custom' \| 'default' }` |
+| `POST /register` | `USER_CREATED` | `{ email, method: 'custom' \| 'default' }` — `email` cut to 320 characters |
 | `POST /2fa/verify-setup` | `USER_2FA_ENABLED` | — |
 | `POST /2fa/disable` | `USER_2FA_DISABLED` | — |
 | `POST /change-password` | `USER_PASSWORD_CHANGED` | — |

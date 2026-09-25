@@ -81,6 +81,25 @@ describe('router event payloads', () => {
     expect((failed[2].data as Record<string, unknown>)['email']).toBe('nobody@x.test');
   });
 
+  it('USER_CREATED keeps the registered e-mail at most 320 characters long', async () => {
+    const bus = new AuthEventBus();
+    const seen = collect(bus);
+    const app = express();
+    app.use(express.json());
+    app.use('/auth', createAuthRouter(new InMemoryUserStore(), config, { eventBus: bus, defaultRegister: true }));
+
+    const longEmail = `${'q'.repeat(9990)}@x.test`;
+    const res = await request(app).post('/auth/register').send({ email: longEmail, password: 'pw-123456' });
+    const short = await request(app).post('/auth/register').send({ email: 'short@x.test', password: 'pw-123456' });
+
+    expect(res.status).toBe(201);
+    expect(short.status).toBe(201);
+    const created = seen.filter((e) => e.event === AuthEventNames.USER_CREATED);
+    expect(created).toHaveLength(2);
+    expect((created[0].data as Record<string, unknown>)['email']).toBe(longEmail.slice(0, 320));
+    expect((created[1].data as Record<string, unknown>)['email']).toBe('short@x.test');
+  });
+
   it('keeps X-Correlation-Id only when it is 1-128 characters of [A-Za-z0-9_.:-]', async () => {
     const bus = new AuthEventBus();
     const seen = collect(bus);

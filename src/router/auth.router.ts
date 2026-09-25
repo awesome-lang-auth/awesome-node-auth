@@ -821,7 +821,7 @@ export function createAuthRouter(
         }
         publishRouterEvent(eventBus, AuthEventNames.USER_CREATED, req, {
           userId: user.id,
-          data: { email: user.email, method: options.onRegister ? 'custom' : 'default' },
+          data: { email: eventEmail(user.email), method: options.onRegister ? 'custom' : 'default' },
         });
         res.status(201).json({ success: true, userId: user.id });
       } catch (err) {
