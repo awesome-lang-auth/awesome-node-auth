@@ -12,7 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 #### One-call mounting and admin bootstrap
 - **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`).
 - **`AuthConfigurator.promoteToAdmin()` / `revokeAdmin()`** — grant or remove admin access by role (`rbacStore`, the default) or by the `isAdmin` flag (`IUserStore.update`); `revokeAdmin` also accepts `method: 'both'`.
-- **`POST /users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). Registered **without** the `/api` segment used by the other admin REST endpoints.
+- **`POST /users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). It requires a JSON body (`415` otherwise). Registered **without** the `/api` segment used by the other admin REST endpoints.
 - **`IUserStore.update?(userId, patch)`** — optional partial update, used by the flag-based promote/revoke.
 - **`AuthorizedAdminUser`** type — the admin guard loads the user's roles from `rbacStore` before evaluating `accessPolicy`; custom policies and `req.user` receive `BaseUser & { roles: string[] }`.
 - **`AdminOptions.eventBus`**, **`AdminOptions.rateLimiter`** (applied to the promote endpoint) and **`AdminOptions.silent`** (suppresses the startup tab summary).

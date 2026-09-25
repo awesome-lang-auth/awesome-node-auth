@@ -249,6 +249,23 @@ function publishAdminEvent(
   });
 }
 
+/**
+ * Refuse a request whose body is not `application/json` with `415`.
+ *
+ * For admin mutations that need no body field to grant a privilege (such as
+ * `POST /users/:id/promote`): an HTML form or a `text/plain` POST is a CORS
+ * "simple" request that a browser sends cross-site without a preflight, an
+ * `application/json` one is not.  Every route that grants admin access this
+ * way must use this check.
+ */
+const requireJsonBody: RequestHandler = (req, res, next) => {
+  if (!req.is('application/json')) {
+    res.status(415).json({ error: 'Content-Type must be application/json' });
+    return;
+  }
+  next();
+};
+
 /** Legacy guard — still used when `adminSecret` is provided. */
 function adminAuth(secret: string): RequestHandler {
   return (req: Request, res: Response, next) => {
@@ -1027,7 +1044,7 @@ export function createAdminRouter(
     }
   });
 
-  router.post('/users/:id/promote', ...rateLimiter, guard, async (req: Request, res: Response) => {
+  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, async (req: Request, res: Response) => {
     const userId = req.params['id'] as string;
     const method = (req.body as { method?: 'flag' | 'role' } | undefined)?.method ?? 'role';
     try {

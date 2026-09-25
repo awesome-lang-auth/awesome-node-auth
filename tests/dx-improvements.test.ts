@@ -39,6 +39,21 @@ function makeUserStore(user: BaseUser): IUserStore & { update: ReturnType<typeof
   };
 }
 
+function makeRbacStore(rolesForUser: string[] = []): IRolesPermissionsStore {
+  return {
+    addRoleToUser: vi.fn().mockResolvedValue(undefined),
+    removeRoleFromUser: vi.fn().mockResolvedValue(undefined),
+    getRolesForUser: vi.fn().mockResolvedValue(rolesForUser),
+    createRole: vi.fn().mockResolvedValue(undefined),
+    deleteRole: vi.fn().mockResolvedValue(undefined),
+    addPermissionToRole: vi.fn().mockResolvedValue(undefined),
+    removePermissionFromRole: vi.fn().mockResolvedValue(undefined),
+    getPermissionsForRole: vi.fn().mockResolvedValue([]),
+    getPermissionsForUser: vi.fn().mockResolvedValue([]),
+    userHasPermission: vi.fn().mockResolvedValue(false),
+  };
+}
+
 describe('DX improvements', () => {
   let adminUser: BaseUser;
 
@@ -170,6 +185,35 @@ describe('DX improvements', () => {
 
     expect(res.status).toBe(200);
     expect(rbacStore.createRole).toHaveBeenCalledWith('admin');
+    expect(rbacStore.addRoleToUser).toHaveBeenCalledWith('user-9', 'admin');
+  });
+
+  it('POST /users/:id/promote refuses non-JSON bodies with 415 and assigns no role', async () => {
+    const userStore = makeUserStore(adminUser);
+    const rbacStore = makeRbacStore(['admin']);
+    const app = express();
+    app.use('/admin', createAdminRouter(userStore, {
+      accessPolicy: (user) => user.roles.includes('admin'),
+      jwtSecret: config.accessTokenSecret,
+      rbacStore,
+      silent: true,
+    }));
+    const token = tokenService.generateTokenPair({ sub: adminUser.id, email: adminUser.email }, config).accessToken;
+    const promote = () => request(app).post('/admin/users/user-9/promote').set('Cookie', `accessToken=${token}`);
+
+    const form = await promote().set('Content-Type', 'application/x-www-form-urlencoded').send('');
+    const text = await promote().set('Content-Type', 'text/plain').send('{"method":"role"}');
+    const noBody = await promote();
+    for (const res of [form, text, noBody]) {
+      expect(res.status).toBe(415);
+      expect(res.body).toEqual({ error: 'Content-Type must be application/json' });
+    }
+    expect(rbacStore.createRole).not.toHaveBeenCalled();
+    expect(rbacStore.addRoleToUser).not.toHaveBeenCalled();
+
+    const json = await promote().send({});
+    expect(json.status).toBe(200);
+    expect(json.body).toEqual({ success: true, method: 'role' });
     expect(rbacStore.addRoleToUser).toHaveBeenCalledWith('user-9', 'admin');
   });
 });

@@ -2915,7 +2915,7 @@ Unauthenticated requests will receive a 401 or be redirected.
 | `GET` | `/admin/api/templates/ui` | List all custom UI translations — requires `templateStore` |
 | `POST` | `/admin/api/templates/ui` | Update UI translations for a page — requires `templateStore` |
 
-> **`POST /admin/users/:id/promote`** is registered **without** the `/api` segment used by every other admin REST endpoint (mounted through `buildAllRouters()` the full path is `/auth/admin/users/:id/promote`). It runs the admin `rateLimiter` (when set) and the admin guard, then:
+> **`POST /admin/users/:id/promote`** is registered **without** the `/api` segment used by every other admin REST endpoint (mounted through `buildAllRouters()` the full path is `/auth/admin/users/:id/promote`). It runs the admin `rateLimiter` (when set) and the admin guard, and requires a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
 > - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
 >
