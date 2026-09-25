@@ -28,6 +28,7 @@ import { buildUiRouter } from './ui.router';
 import { JwksService } from '../services/jwks.service';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
+import { publishRequestEvent as publishRouterEvent, eventEmail, oauthConflictEventData } from './router-events';
 
 export interface RouterOptions {
   googleStrategy?: GoogleStrategy;
@@ -425,40 +426,6 @@ function isBearerRequest(req: Request): boolean {
   return req.headers['x-auth-strategy'] === 'bearer';
 }
 
-function getRequestEventContext(req: Request): {
-  correlationId?: string;
-  ip?: string;
-  userAgent?: string;
-} {
-  const correlationHeader = req.headers['x-correlation-id'];
-  const correlationId = Array.isArray(correlationHeader) ? correlationHeader[0] : correlationHeader;
-  const userAgentHeader = req.headers['user-agent'];
-  const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
-  return {
-    correlationId,
-    ip: req.ip || req.socket.remoteAddress,
-    userAgent,
-  };
-}
-
-function publishRouterEvent(
-  eventBus: AuthEventBus | undefined,
-  eventName: string,
-  req: Request,
-  payload: {
-    data?: unknown;
-    userId?: string;
-    tenantId?: string;
-    sessionId?: string;
-  } = {},
-): void {
-  if (!eventBus) return;
-  eventBus.publish(eventName, {
-    ...getRequestEventContext(req),
-    ...payload,
-  });
-}
-
 /**
  * Issue tokens to the client.  When the request carries the
  * `X-Auth-Strategy: bearer` header the tokens are returned in the JSON
@@ -694,7 +661,7 @@ export function createAuthRouter(
     } catch (err) {
       if (err instanceof AuthError && err.statusCode === 401) {
         publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_FAILED, req, {
-          data: { method: 'local', email: (req.body as { email?: string } | undefined)?.email },
+          data: { method: 'local', email: eventEmail((req.body as { email?: unknown } | undefined)?.email) },
         });
       }
       handleError(res, err);
@@ -1520,7 +1487,7 @@ export function createAuthRouter(
       } catch (err) {
         if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
           publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
-            data: { provider: 'google', ...(err.data ?? {}) },
+            data: oauthConflictEventData('google', err.data),
           });
           const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
@@ -1570,7 +1537,7 @@ export function createAuthRouter(
       } catch (err) {
         if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
           publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
-            data: { provider: 'github', ...(err.data ?? {}) },
+            data: oauthConflictEventData('github', err.data),
           });
           const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
@@ -1620,7 +1587,7 @@ export function createAuthRouter(
         } catch (err) {
           if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
             publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
-              data: { provider: s.name, ...(err.data ?? {}) },
+              data: oauthConflictEventData(s.name, err.data),
             });
             const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
             const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };

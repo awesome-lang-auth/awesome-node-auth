@@ -20,6 +20,7 @@ import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
+import { publishRequestEvent as publishAdminEvent } from './router-events';
 
 /*
  * Admin login lives here (typically /auth/admin/login when mounted via
@@ -215,38 +216,13 @@ type AdminWritableUserStore = IUserStore & {
   update?: (userId: string, patch: Partial<BaseUser>) => Promise<void>;
 };
 
-function getRequestEventContext(req: Request): {
-  correlationId?: string;
-  ip?: string;
-  userAgent?: string;
-} {
-  const correlationHeader = req.headers['x-correlation-id'];
-  const correlationId = Array.isArray(correlationHeader) ? correlationHeader[0] : correlationHeader;
-  const userAgentHeader = req.headers['user-agent'];
-  const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
-  return {
-    correlationId,
-    ip: req.ip || req.socket.remoteAddress,
-    userAgent,
-  };
-}
-
-function publishAdminEvent(
-  eventBus: AuthEventBus | undefined,
-  eventName: string,
-  req: Request,
-  payload: {
-    data?: unknown;
-    userId?: string;
-    tenantId?: string;
-    sessionId?: string;
-  } = {},
-): void {
-  if (!eventBus) return;
-  eventBus.publish(eventName, {
-    ...getRequestEventContext(req),
-    ...payload,
-  });
+/**
+ * Id of the admin the guard authorized for this request (the actor of a
+ * privilege change), when the guard identified one.
+ */
+function adminActorId(req: Request): string | undefined {
+  const user = (req as unknown as { user?: { id?: unknown } }).user;
+  return typeof user?.id === 'string' ? user.id : undefined;
 }
 
 /**
@@ -1019,7 +995,7 @@ export function createAdminRouter(
       publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
         userId,
         tenantId,
-        data: { role },
+        data: { role, actorId: adminActorId(req) },
       });
       res.json({ success: true });
     } catch {
@@ -1036,7 +1012,7 @@ export function createAdminRouter(
       await options.rbacStore.removeRoleFromUser(userId, role);
       publishAdminEvent(eventBus, AuthEventNames.ROLE_REVOKED, req, {
         userId,
-        data: { role },
+        data: { role, actorId: adminActorId(req) },
       });
       res.json({ success: true });
     } catch {
@@ -1057,7 +1033,7 @@ export function createAdminRouter(
         await writableUserStore.update(userId, { isAdmin: true });
         publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
           userId,
-          data: { role: 'admin', method: 'flag' },
+          data: { role: 'admin', method: 'flag', actorId: adminActorId(req) },
         });
         res.json({ success: true, method });
         return;
@@ -1071,7 +1047,7 @@ export function createAdminRouter(
       await options.rbacStore.addRoleToUser(userId, 'admin');
       publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
         userId,
-        data: { role: 'admin', method: 'role' },
+        data: { role: 'admin', method: 'role', actorId: adminActorId(req) },
       });
       res.json({ success: true, method });
     } catch {

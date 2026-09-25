@@ -10,6 +10,7 @@ import { createAuthMiddleware } from './middleware/auth.middleware';
 import { createAuthRouter, resolveApiPrefix, RouterOptions } from './router/auth.router';
 import { ISessionStore } from './interfaces/session-store.interface';
 import { createAdminRouter, AdminOptions } from './router/admin.router';
+import { publishSafely } from './router/router-events';
 import { AuthEventBus } from './events/auth-event-bus';
 import { AuthEventNames } from './events/auth-event-names';
 import { IRolesPermissionsStore } from './interfaces/roles-permissions-store.interface';
@@ -89,7 +90,7 @@ export class AuthConfigurator {
         throw new Error('IUserStore.update is required for promoteToAdmin({ method: "flag" })');
       }
       await writableUserStore.update(userId, { isAdmin: true });
-      this.options.eventBus?.publish(AuthEventNames.ROLE_ASSIGNED, {
+      publishSafely(this.options.eventBus, AuthEventNames.ROLE_ASSIGNED, {
         userId,
         data: { role: 'admin', method: 'flag' },
       });
@@ -101,7 +102,7 @@ export class AuthConfigurator {
     }
     await options.rbacStore.createRole('admin');
     await options.rbacStore.addRoleToUser(userId, 'admin');
-    this.options.eventBus?.publish(AuthEventNames.ROLE_ASSIGNED, {
+    publishSafely(this.options.eventBus, AuthEventNames.ROLE_ASSIGNED, {
       userId,
       data: { role: 'admin', method: 'role' },
     });
@@ -132,7 +133,7 @@ export class AuthConfigurator {
       await options.rbacStore!.removeRoleFromUser(userId, 'admin');
     }
 
-    this.options.eventBus?.publish(AuthEventNames.ROLE_REVOKED, {
+    publishSafely(this.options.eventBus, AuthEventNames.ROLE_REVOKED, {
       userId,
       data: { role: 'admin', method },
     });

@@ -3322,19 +3322,19 @@ app.use('/auth', createAuthRouter(userStore, config, { eventBus: bus }));
 app.use('/admin', createAdminRouter(userStore, { accessPolicy: 'first-user', jwtSecret, eventBus: bus }));
 ```
 
-Success events are published after the operation has completed. Router events carry `userId` and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header).
+Success events are published after the operation has completed. Router events carry `userId` and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
 
 **Auth router** (`createAuthRouter` / `auth.router()`):
 
 | Endpoint | Event | `data` |
 |---|---|---|
 | `POST /login` | `AUTH_LOGIN_SUCCESS` | `{ method: 'local' }` — only when tokens are issued (not when a 2FA challenge is returned) |
-| `POST /login` → `401` | `AUTH_LOGIN_FAILED` | `{ method: 'local', email }` |
+| `POST /login` → `401` | `AUTH_LOGIN_FAILED` | `{ method: 'local', email }` — `email` as sent by the client when it is a string, cut to 320 characters |
 | `POST /2fa/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'totp' }` |
 | `POST /magic-link/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'magic-link' }` |
 | `POST /sms/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'sms' }` |
 | `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` |
-| `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, ...conflict details }` (e.g. `email`, `providerAccountId`) |
+| `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, email, providerAccountId }` — the two conflict fields are picked from the `OAUTH_ACCOUNT_CONFLICT` error's `data` when they are strings; nothing else from it is copied |
 | `POST /logout` | `AUTH_LOGOUT` | — |
 | `POST /refresh` | `SESSION_ROTATED` | `{ previousSessionId }` |
 | `POST /register` | `USER_CREATED` | `{ email, method: 'custom' \| 'default' }` |
@@ -3351,13 +3351,15 @@ An OAuth login that stops at the 2FA challenge does not publish `AUTH_OAUTH_SUCC
 
 | Endpoint | Event | `data` |
 |---|---|---|
-| `POST /api/users/:id/roles` | `ROLE_ASSIGNED` | `{ role }` (`tenantId` on the payload when given) |
-| `DELETE /api/users/:id/roles/:role` | `ROLE_REVOKED` | `{ role }` |
-| `POST /users/:id/promote` | `ROLE_ASSIGNED` | `{ role: 'admin', method }` |
+| `POST /api/users/:id/roles` | `ROLE_ASSIGNED` | `{ role, actorId }` (`tenantId` on the payload when given) |
+| `DELETE /api/users/:id/roles/:role` | `ROLE_REVOKED` | `{ role, actorId }` |
+| `POST /users/:id/promote` | `ROLE_ASSIGNED` | `{ role: 'admin', method, actorId }` |
+
+`userId` is the user whose roles changed; `actorId` is the id of the admin the `accessPolicy` guard authorized for the request (absent with `accessPolicy: 'open'` or the legacy `adminSecret`, which identify no user).
 
 **`AuthConfigurator`** (no request context): `promoteToAdmin()` → `ROLE_ASSIGNED`, `revokeAdmin()` → `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
 
-Listeners run synchronously inside the request (`AuthEventBus` is an `EventEmitter`): keep them fast and make sure they do not throw.
+Listeners run synchronously inside the request (`AuthEventBus` is an `EventEmitter`): keep them fast. A listener that throws does not fail the request or the helper, which report it with a `WARN` line on `stderr`; but `EventEmitter` stops at the first listener that throws, so the listeners after it (including `'*'` listeners) miss that event — make sure they do not throw.
 
 ### Standard Event Names
 
