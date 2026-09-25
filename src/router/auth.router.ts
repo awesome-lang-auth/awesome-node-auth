@@ -499,7 +499,9 @@ export function createAuthRouter(
     refreshTokenPath: config.cookieOptions?.refreshTokenPath ?? `${options.apiPrefix || config.apiPrefix || '/auth'}/refresh`
   };
 
-  const authMiddleware = createAuthMiddleware(config);
+  // With a session store, `session.checkOn: 'allcalls'` checks revocation on
+  // the router's own protected routes too.
+  const authMiddleware = createAuthMiddleware(config, options.sessionStore);
   const localStrategy = new LocalStrategy(userStore, passwordService);
   const rl = options.rateLimiter ? [options.rateLimiter] : [];
   const allowedOrigins = buildAllowedOrigins(config, options);

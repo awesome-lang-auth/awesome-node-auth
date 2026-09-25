@@ -495,8 +495,8 @@ const config: AuthConfig = {
   },
 
   // Session Strategy (v1.5.0) — see “Session Management” section
-  sessionStrategy: {
-    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'none')
+  session: {
+    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'refresh')
   },
 
   // Built-in UI configuration
@@ -3114,11 +3114,11 @@ buildTokenPayload: async (user) => ({
 
 ### Validation Modes (`checkOn`)
 
-You can control the performance/security trade-off via the `sessionStrategy.checkOn` option:
+You can control the performance/security trade-off via the `session.checkOn` option (with an `ISessionStore` passed to the router):
 
-- `none` (Default): Purely stateless. Very fast, but tokens remain valid until they expire even if the session is deleted.
-- `refresh`: Validates the session only when a new Access Token is requested. Fast, and ensures that once a session is revoked, the user cannot get new tokens.
-- `allcalls`: Validates the session ID on **every single request** via middleware. Highest security, handles instant "kill-switch" revocation. Recommended with high-performance stores (Redis/In-Memory).
+- `none`: Purely stateless. Very fast, but tokens remain valid until they expire even if the session is deleted.
+- `refresh` (default): Validates the session only when a new Access Token is requested. Fast, and ensures that once a session is revoked, the user cannot get new tokens.
+- `allcalls`: Validates the session ID on **every single request** via middleware: the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...) and `auth.middleware()` when it has a store (`auth.middleware({ sessionStore })`, or a call made after `auth.router({ sessionStore })`). A revoked session gets `401 SESSION_REVOKED` on the next call. Highest security, handles instant "kill-switch" revocation. Recommended with high-performance stores (Redis/In-Memory).
 
 ### Automated Endpoints
 
