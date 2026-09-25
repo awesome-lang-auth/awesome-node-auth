@@ -31,9 +31,9 @@ export interface BuildAllRoutersOptions {
   /**
    * Options for the admin router.  `accessPolicy` (or a non-empty legacy
    * `adminSecret`) is required: without either, `createAdminRouter` mounts the
-   * admin routes unprotected.  The type cannot reject an empty `adminSecret`,
-   * which counts as missing at runtime.  Pass `accessPolicy: 'open'` to opt out
-   * explicitly.
+   * admin routes unprotected.  The type cannot reject an empty `adminSecret`;
+   * `createAdminRouter` throws on it at runtime.  Pass `accessPolicy: 'open'`
+   * to opt out explicitly.
    */
   admin: BuildAllRoutersAdminOptions & ({ accessPolicy: AdminAccessPolicy } | { adminSecret: string });
 }

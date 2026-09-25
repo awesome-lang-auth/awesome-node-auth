@@ -59,8 +59,10 @@ export interface AdminOptions {
    * Pass as a Bearer token: `Authorization: Bearer <adminSecret>`
    * The HTML UI presents a login form that stores the token in sessionStorage.
    *
-   * Must be non-empty: without `accessPolicy`, an empty string counts as no
-   * secret, and the admin routes are mounted unprotected (with a stderr WARNING).
+   * Must be non-empty: without `accessPolicy`, `createAdminRouter` throws when
+   * `adminSecret` is present but empty (`''`, or `undefined` from an unset
+   * environment variable).  With `accessPolicy` it is only the bootstrap
+   * credential of `POST /login`, and an empty value disables it.
    *
    * @deprecated Use `accessPolicy` + `jwtSecret` instead (v1.8.0+).
    *   `adminSecret` will be removed in a future major version.
@@ -585,6 +587,19 @@ export function createAdminRouter(
   userStore: IUserStore,
   options: AdminOptions,
 ): Router {
+  // An `adminSecret` that is present but empty (`''`, or an unset environment
+  // variable) would otherwise fall through to the unprotected router below.
+  if (
+    options.accessPolicy === undefined
+    && Object.prototype.hasOwnProperty.call(options, 'adminSecret')
+    && (typeof options.adminSecret !== 'string' || options.adminSecret === '')
+  ) {
+    throw new Error(
+      '[awesome-node-auth] createAdminRouter: `adminSecret` is empty. Set it to a non-empty secret, ' +
+      'or configure `accessPolicy` instead (`accessPolicy: \'open\'` mounts the admin routes without protection on purpose).',
+    );
+  }
+
   const router = Router();
   const eventBus = options.eventBus;
   const rateLimiter = options.rateLimiter ? [options.rateLimiter] : [];

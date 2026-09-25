@@ -81,3 +81,45 @@ describe('admin guard: unauthenticated browser requests', () => {
     expect(res.body).toEqual({ error: 'Unauthorized' });
   });
 });
+
+describe('createAdminRouter: empty adminSecret', () => {
+  it('throws when adminSecret is present but empty and no accessPolicy is set', () => {
+    const userStore = new InMemoryUserStore();
+    expect(() => createAdminRouter(userStore, { adminSecret: '' })).toThrow(/adminSecret` is empty/);
+    // An unset environment variable passed through as a string.
+    const unset = process.env['M22_SURELY_UNSET_ADMIN_SECRET'] as string;
+    expect(() => createAdminRouter(userStore, { adminSecret: unset })).toThrow(/adminSecret` is empty/);
+  });
+
+  it('refuses the empty secret through buildAllRouters() too', async () => {
+    const { AuthConfigurator } = await import('../src/auth-configurator');
+    const auth = new AuthConfigurator(
+      { accessTokenSecret: jwtSecret, refreshTokenSecret: `${jwtSecret}-refresh` },
+      new InMemoryUserStore(),
+    );
+    expect(() => auth.buildAllRouters({ admin: { adminSecret: '' } })).toThrow(/adminSecret` is empty/);
+  });
+
+  it('does not throw for a non-empty secret, without adminSecret, or when accessPolicy is set', async () => {
+    const userStore = new InMemoryUserStore();
+    expect(() => createAdminRouter(userStore, { adminSecret: 's3cret', silent: true })).not.toThrow();
+    expect(() => createAdminRouter(userStore, { accessPolicy: 'is-admin-flag', jwtSecret, adminSecret: '', silent: true })).not.toThrow();
+
+    // Neither option: still the documented unprotected router with a WARNING.
+    const write = process.stderr.write.bind(process.stderr);
+    const lines: string[] = [];
+    process.stderr.write = ((chunk: string) => { lines.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      expect(() => createAdminRouter(userStore, { silent: true })).not.toThrow();
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(lines.join('')).toContain('WARNING: createAdminRouter called without `accessPolicy` or `adminSecret`');
+
+    // The legacy secret still guards the API.
+    const app = express();
+    app.use('/admin', createAdminRouter(userStore, { adminSecret: 's3cret', silent: true }));
+    expect((await request(app).get('/admin/api/ping')).status).toBe(401);
+    expect((await request(app).get('/admin/api/ping').set('Authorization', 'Bearer s3cret')).status).toBe(200);
+  });
+});

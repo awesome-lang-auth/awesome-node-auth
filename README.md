@@ -164,7 +164,7 @@ Full configuration reference → [README.detailed.md § Configuration](./README.
 
 ## Admin UI
 
-Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`.
+Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`. Without `accessPolicy`, an `adminSecret` that is present but empty (an unset environment variable, for example) throws a configuration error at startup.
 
 | `admin` option (`AdminOptions`) | Unlocks |
 |---|---|
