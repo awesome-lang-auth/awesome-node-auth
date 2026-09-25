@@ -52,7 +52,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ### Fixed
 - `session.checkOn: 'allcalls'` now applies to the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...): the router passes its `sessionStore` to its access-token middleware, so a revoked session gets `401 SESSION_REVOKED` on the next call, and the session's last-active time is updated there.
-- The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes.
+- The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes, so with `csrf.enabled` and a longer `accessTokenExpiresIn` a state-changing request made after 15 minutes gets `403 CSRF_INVALID` until the client refreshes (see README.detailed, CSRF Protection).
 - `POST /link-request` exempts requests with an `Authorization: Bearer` credential from its CSRF check, like `auth.middleware()`, and then identifies the user from the bearer token only. Cookie-authenticated and anonymous conflict-linking requests are still checked. (#4)
 - The auth router's CORS layer allows the `X-Auth-Strategy` request header, so browser apps on a listed origin can use bearer mode. (#5)
 - The Next.js demo's edge middleware and the edge-middleware snippet in `examples/nextjs-integration.example.ts` check the token expiry and refuse tokens that are not sessions (`purpose` claim), not only the signature.

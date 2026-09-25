@@ -409,6 +409,8 @@ app.use('/auth', createAuthRouter(userStore, config, {
 
 For a listed origin the router answers the preflight itself and allows the methods `GET,POST,PUT,PATCH,DELETE,OPTIONS`, credentials, and the request headers `Content-Type`, `Authorization`, `X-CSRF-Token`, `X-Api-Key` and `X-Auth-Strategy` (so a browser app on another origin can use [bearer mode](#bearer-token-strategy)).
 
+List only origins you trust with the session. When the browser sends the session cookies along with a listed origin's requests (a same-site sibling such as `app.example.com` next to `auth.example.com`, or any origin under `cookieOptions.sameSite: 'none'`), script on that origin can call `POST /auth/refresh` with `X-Auth-Strategy: bearer` and read the rotated `accessToken` and `refreshToken` from the response body, even though the cookies themselves are `HttpOnly`.
+
 ### Dynamic Email Links (`siteUrl`)
 When the router receives a request from an allowed origin, it dynamically sets that origin as the base URL for any emails sent during that request (like magic links or password resets). This ensures users are redirected back to the exact frontend they initiated the request from.
 
@@ -1752,6 +1754,8 @@ await authFetch('/auth/logout', { method: 'POST' });
 > **Note:** CSRF protection is only meaningful for cookie-based authentication. If you use `Authorization: Bearer` headers instead of cookies, you do not need CSRF protection.
 
 > **Note:** The `csrf-token` cookie inherits `sameSite` and `secure` from `cookieOptions`. In cross-origin setups (`sameSite: 'none', secure: true`), the CSRF cookie is automatically marked `Secure`. Verify that it remains readable from JavaScript (`httpOnly` is always `false` for the CSRF cookie).
+
+> **Note:** The `csrf-token` cookie lives 15 minutes, whatever `accessTokenExpiresIn` says, while the `accessToken` cookie lives as long as its token. With an access token longer than 15 minutes the CSRF cookie can expire first, and the next state-changing request gets `403 CSRF_INVALID`. Any request to the auth router re-issues a missing `csrf-token` cookie, and `POST /auth/refresh` sets a fresh one, so a client that answers `CSRF_INVALID` by refreshing and retrying once recovers. The served `auth.js` does this for requests outside the auth router.
 
 ## Bearer Token Strategy
 
