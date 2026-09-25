@@ -2921,7 +2921,7 @@ Unauthenticated requests will receive a 401 or be redirected.
 >
 > Success: `200 { "success": true, "method": "role" }` (or `"flag"`), plus a `ROLE_ASSIGNED` event when `eventBus` is set. The role-assignment endpoints publish events too: `POST /admin/api/users/:id/roles` → `ROLE_ASSIGNED`, `DELETE /admin/api/users/:id/roles/:role` → `ROLE_REVOKED`.
 
-> **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. Unauthenticated browsers will be automatically redirected to the main app login page (`/auth/ui/login?redirect=/admin`). For further security in production, mount the admin router behind a VPN or IP allow-list.
+> **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. Unauthenticated browser requests (`Accept: text/html`) are redirected only when `loginPath` is set, to `${loginPath}?redirect=<URL-encoded admin path>`; without `loginPath`, the panel shows its own sign-in form on `GET`. Other unauthenticated requests get `401`. For further security in production, mount the admin router behind a VPN or IP allow-list.
 
 ## RouterOptions
 
