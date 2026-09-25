@@ -58,6 +58,9 @@ export interface AdminOptions {
    * Pass as a Bearer token: `Authorization: Bearer <adminSecret>`
    * The HTML UI presents a login form that stores the token in sessionStorage.
    *
+   * Must be non-empty: without `accessPolicy`, an empty string counts as no
+   * secret, and the admin routes are mounted unprotected (with a stderr WARNING).
+   *
    * @deprecated Use `accessPolicy` + `jwtSecret` instead (v1.8.0+).
    *   `adminSecret` will be removed in a future major version.
    *   It is still fully functional for backward compatibility.
