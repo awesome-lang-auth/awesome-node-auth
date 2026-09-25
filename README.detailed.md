@@ -1801,6 +1801,10 @@ const res = await fetch('/auth/refresh', {
 const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await res.json();
 ```
 
+The `X-Auth-Strategy: bearer` header is respected by all token-issuing endpoints: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/2fa/verify`, `POST /auth/magic-link/verify`, and `POST /auth/sms/verify`.
+
+> **Cookie users are unaffected** — if the `X-Auth-Strategy: bearer` header is absent, the library behaves exactly as before (HttpOnly cookies, optional CSRF protection).
+
 ### Logout (bearer)
 
 `POST /auth/logout` ends the session named by the `Authorization: Bearer` access token and/or by a `refreshToken` in the JSON body (as for `/auth/refresh`): it revokes the stateful session (with a `sessionStore`) and clears the stored refresh token, so that refresh token is refused afterwards. A refresh token in the body counts only while it is the user's current one. Send both when you have them; an expired access token alone cannot identify the session.
@@ -1816,10 +1820,6 @@ await fetch('/auth/logout', {
 });
 // then drop both tokens on the client
 ```
-
-The `X-Auth-Strategy: bearer` header is respected by all token-issuing endpoints: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/2fa/verify`, `POST /auth/magic-link/verify`, and `POST /auth/sms/verify`.
-
-> **Cookie users are unaffected** — if the `X-Auth-Strategy: bearer` header is absent, the library behaves exactly as before (HttpOnly cookies, optional CSRF protection).
 
 ### Flutter / Android / iOS
 
@@ -2840,7 +2840,7 @@ app.use(auth.buildAllRouters({
 
 Unless `loginPath` redirects elsewhere, the admin panel shows its own sign-in form for operators (served at `<apiPrefix>/admin/`, posting to `<apiPrefix>/admin/login`); end users sign in at `<apiPrefix>/ui/login`. Keep the two audiences separate.
 
-> **The admin sign-in form does not ask for a second factor.** `POST <apiPrefix>/admin/login` checks the email and password (or the root user / `adminSecret` bootstrap credentials) and nothing else, even for a user with 2FA enabled, and signs a 24-hour admin console token. That token carries `purpose: 'admin'`: the admin guard accepts it, and `auth.middleware()` and every other session check of the application refuse it, even though it is signed with the same secret. To require 2FA for operators, set `loginPath` to the application login (for example `'/auth/ui/login'`), which runs the full 2FA flow; the resulting session opens the panel. `POST <apiPrefix>/admin/login` stays mounted either way, so restrict it at the proxy (or mount the admin router behind a VPN or IP allow-list) if password-only access must be impossible.
+> **The admin sign-in form does not ask for a second factor.** `POST <apiPrefix>/admin/login` checks the email and password (or the root user / `adminSecret` bootstrap credentials) and nothing else, even for a user with 2FA enabled, and signs a 24-hour admin console token. That token carries `purpose: 'admin'`: the admin guard accepts it, and `auth.middleware()` and every other session check of the application refuse it, even though it is signed with the same secret. To send operators through 2FA, set `loginPath` to the application login (for example `'/auth/ui/login'`), which runs the full 2FA flow; the resulting session opens the panel (the hosted login then lands on `/`; reopen the panel). `POST <apiPrefix>/admin/login` stays mounted either way, so restrict it at the proxy (or mount the admin router behind a VPN or IP allow-list) if password-only access must be impossible. The built-in admin sign-in stores its token in the same `accessToken` cookie as the application, so an application page that signs the user out (for example after a failed refresh) also ends the console session. With `loginPath` the operator uses the application session instead; otherwise an admin `cookiePrefix` gives the console cookie its own name (the guard then reads only that cookie).
 
 ### Admin access policy and `AuthorizedAdminUser`
 
@@ -2939,7 +2939,7 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 | `GET` | `/admin/api/templates/ui` | List all custom UI translations — requires `templateStore` |
 | `POST` | `/admin/api/templates/ui` | Update UI translations for a page — requires `templateStore` |
 
-> **`POST /admin/api/users/:id/promote`** (mounted through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`). The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
+> **`POST /admin/api/users/:id/promote`**: through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`. The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
 > - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
 >
