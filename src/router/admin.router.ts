@@ -71,9 +71,10 @@ export interface AdminOptions {
    * Access control policy that governs who may use the Admin UI and API.
    *
    * When set, the guard validates the request JWT (`Authorization: Bearer <token>`
-   * or the `accessToken` cookie) and — for browser requests without a valid
-   * session — issues a `302` redirect to the app login page
-   * (`/auth/ui/login?redirect=<adminPath>`).
+   * or the `accessToken` cookie).  A request without a valid session gets
+   * `401`, except a browser request for the HTML panel (`GET <adminPath>/`),
+   * which is redirected to `loginPath` when it is set and otherwise shows the
+   * panel's built-in sign-in form.
    *
    * Requires `jwtSecret` to be set when using any policy other than `'open'`.
    *
@@ -196,8 +197,9 @@ export interface AdminOptions {
   swaggerBasePath?: string;
 
   /**
-   * Optional custom login path to redirect unauthenticated browser requests.
-   * If not provided, the Admin UI serves its own internal login form as a fallback.
+   * Optional custom login path to redirect unauthenticated browser requests
+   * for the HTML panel to.  If not provided, the panel serves its own internal
+   * login form as a fallback.  The REST API answers `401` either way.
    *
    * @example '/login'
    * @since 1.8.0
@@ -314,9 +316,12 @@ function applyHostCookieRequirements(cookieName: string, opts: Record<string, un
 /**
  * JWT-based guard that enforces `AdminAccessPolicy`.
  *
- * For HTML requests without a valid session, issues a 302 redirect to the
- * app login page (`/auth/ui/login?redirect=<adminPath>`).
- * For JSON / API requests without a valid session, returns 401.
+ * A request without a valid session gets `401`.  The one exception is the
+ * guard built with `loginFormFallback` for the HTML panel route: there an
+ * unauthenticated browser request (`Accept: text/html`) is redirected to
+ * `loginPath` when it is set, or, for a `GET`, let through with the
+ * `adminNeedsAuth` marker so the panel renders its built-in sign-in form.
+ * No other route may use that guard: its handlers do not check the marker.
  */
 function buildPolicyGuard(
   policy: AdminAccessPolicy,
@@ -325,6 +330,7 @@ function buildPolicyGuard(
   rbacStore?: IRolesPermissionsStore,
   loginPath?: string,
   cookiePrefix?: string,
+  loginFormFallback = false,
 ): RequestHandler {
   return async (req: Request, res: Response, next) => {
     // 'open' — no auth required at all
@@ -366,10 +372,10 @@ function buildPolicyGuard(
       }
     }
 
-    // ── 2. Unauthenticated → redirect (HTML) or 401 (API) ─────────────────
+    // ── 2. Unauthenticated → 401, or (panel route only) redirect / sign-in form
     if (!payload) {
       const acceptsHtml = req.headers.accept?.includes('text/html');
-      if (acceptsHtml) {
+      if (acceptsHtml && loginFormFallback) {
         // 1. External redirect if configured
         if (loginPath) {
           const redirectTo = encodeURIComponent(req.baseUrl + req.path);
@@ -378,7 +384,7 @@ function buildPolicyGuard(
         }
 
         // 2. Internal fallback: let the GET request through but mark as unauthenticated
-        // so the UI router can show the built-in login form.
+        // so the panel handler can show the built-in login form.
         if (req.method === 'GET') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (req as any).adminNeedsAuth = true;
@@ -582,6 +588,9 @@ export function createAdminRouter(
   // ── Select the appropriate authentication guard ──────────────────────────
   // Priority: accessPolicy (new) > adminSecret (legacy) > open (no auth).
   let guard: RequestHandler;
+  // Guard of the HTML panel route only (see buildPolicyGuard): the one route
+  // that may answer an unauthenticated browser with the sign-in form.
+  let panelGuard: RequestHandler | undefined;
   let sessionBased = false;
 
   if (options.accessPolicy !== undefined) {
@@ -593,6 +602,15 @@ export function createAdminRouter(
       options.rbacStore,
       options.loginPath,
       options.cookiePrefix,
+    );
+    panelGuard = buildPolicyGuard(
+      options.accessPolicy,
+      userStore,
+      options.jwtSecret,
+      options.rbacStore,
+      options.loginPath,
+      options.cookiePrefix,
+      true,
     );
     sessionBased = options.accessPolicy !== 'open';
   } else if (options.adminSecret) {
@@ -795,8 +813,8 @@ export function createAdminRouter(
   // When using accessPolicy (session-based): guard is applied so unauthenticated browsers are
   // redirected to the login page before the HTML is served.
   // When using legacy adminSecret: the HTML is served without auth (the client-side JS handles login).
-  const htmlRoute: RequestHandler[] = sessionBased
-    ? [guard, (_req: Request, res: Response) => {
+  const htmlRoute: RequestHandler[] = sessionBased && panelGuard
+    ? [panelGuard, (_req: Request, res: Response) => {
       const needsAuth = ((_req as any).adminNeedsAuth === true);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
