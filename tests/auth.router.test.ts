@@ -420,9 +420,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
-      const tempToken = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, {
-        ...cfgWithMagic, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m',
-      }).accessToken;
+      const tempToken = tokenService.generateTempToken({ sub: '1', email: 'user@test.com' }, cfgWithMagic);
       const res = await request(testApp)
         .post('/auth/magic-link/send')
         .send({ mode: '2fa', tempToken });
@@ -451,9 +449,7 @@ describe('Auth Router Integration', () => {
       const user = users.get('1')!;
       user.magicLinkToken = 'ml-2fa-token';
       user.magicLinkTokenExpiry = new Date(Date.now() + 60000);
-      const tempToken = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, {
-        ...cfgWithMagic, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m',
-      }).accessToken;
+      const tempToken = tokenService.generateTempToken({ sub: '1', email: 'user@test.com' }, cfgWithMagic);
 
       const res = await request(testApp)
         .post('/auth/magic-link/verify')

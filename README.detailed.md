@@ -2432,6 +2432,7 @@ When either condition is met, `POST /auth/login` responds with:
 ```
 
 - `tempToken` expires in **5 minutes** — use it immediately.
+- `tempToken` proves the password only, so it is **not** a session token: the 2FA completion endpoints (`POST /auth/2fa/verify`, and `/auth/magic-link/*` and `/auth/sms/*` with `mode='2fa'`) accept it, and nothing else does. `auth.middleware()`, the admin router and every route behind them refuse it, and the completion endpoints refuse an ordinary access token in its place. (It carries a `purpose: '2fa'` claim; access tokens carry no `purpose`.)
 - `available2faMethods` lists which 2FA channels are available to this specific user (see [Multi-channel 2FA](#multi-channel-2fa) below).
 
 If `require2FA` is set but **no** method is configured for the user (no TOTP, no phone, and no email sender), the server returns:
@@ -2440,7 +2441,7 @@ If `require2FA` is set but **no** method is configured for the user (no TOTP, no
 { "requires2FASetup": true, "tempToken": "...", "code": "2FA_SETUP_REQUIRED" }
 ```
 
-with HTTP **403** — prompt the user to set up at least one 2FA method.
+with HTTP **403** — prompt the user to set up at least one 2FA method. This `tempToken` cannot open the enrolment routes (`/auth/2fa/setup`, `/auth/add-phone`), which need a session: give the user a channel another way (configure an email sender for magic links, or SMS and a stored phone number), or clear `require2FA` for them.
 
 Show a code-entry UI and call `POST /auth/2fa/verify`:
 
@@ -3001,6 +3002,7 @@ The table below shows the default claims:
 |isTotpEnabled |user.isTotpEnabled??'false' |
 
 If you want to include additional user information such as `firstName`, `lastName`, or `phoneNumber` into the payload, you must explicitly return them in the `buildTokenPayload` callback shown above. 
+Do not return a `purpose` claim: the library uses it to mark tokens that are not sessions (`purpose: '2fa'` on the 2FA `tempToken`), and an access token that carries such a value is refused.
 Any data you inject via this callback becomes automatically available directly inside the JWT (when using Bearer tokens) and is returned seamlessly as part of the JSON profile response on the `/auth/me` endpoint (when using cookie-based access).
 ## User Metadata
 

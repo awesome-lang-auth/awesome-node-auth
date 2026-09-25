@@ -305,6 +305,10 @@ export interface AuthConfig {
    * standard `{ sub, email, role }` claims, so you can add roles, permissions, tenant
    * IDs, or any other project-specific data.
    *
+   * Do not return a `purpose` claim: it marks tokens that are not sessions
+   * (`purpose: '2fa'` on the 2FA step-up token), and an access token carrying
+   * such a value is refused.
+   *
    * @example
    * ```ts
    * buildTokenPayload: (user) => ({

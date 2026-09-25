@@ -15,6 +15,7 @@ import { IApiKeyStore } from '../interfaces/api-key-store.interface';
 import { IWebhookStore } from '../interfaces/webhook-store.interface';
 import { ITemplateStore } from '../interfaces/template-store.interface';
 import { ApiKeyService } from '../services/api-key.service';
+import { TOKEN_PURPOSE_CLAIM, TEMP_TOKEN_PURPOSE } from '../services/token.service';
 import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
@@ -367,6 +368,10 @@ function buildPolicyGuard(
         try {
           payload = jwt.verify(rawToken, jwtSecret) as Record<string, unknown>;
         } catch {
+          payload = null;
+        }
+        // The 2FA step-up token proves a password, not a session: refuse it.
+        if (payload && payload[TOKEN_PURPOSE_CLAIM] === TEMP_TOKEN_PURPOSE) {
           payload = null;
         }
       }

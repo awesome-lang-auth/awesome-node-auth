@@ -635,18 +635,14 @@ export function createAuthRouter(
         // If 2FA is required but the account has no configured method at all,
         // tell the client to set one up first.
         if (available2faMethods.length === 0) {
-          const tempToken = tokenService.generateTokenPair(
-            buildPayload(user, config),
-            { ...config, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-          ).accessToken;
+          const tempToken = tokenService.generateTempToken(buildPayload(user, config), config);
           res.status(403).json({ requires2FASetup: true, tempToken, code: '2FA_SETUP_REQUIRED' });
           return;
         }
 
-        const tempToken = tokenService.generateTokenPair(
-          buildPayload(user, config),
-          { ...config, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-        ).accessToken;
+        // The step-up token is accepted by the 2FA completion endpoints only,
+        // never as a session (see TokenService.generateTempToken).
+        const tempToken = tokenService.generateTempToken(buildPayload(user, config), config);
         res.json({ requiresTwoFactor: true, tempToken, available2faMethods });
         return;
       }
@@ -962,7 +958,7 @@ export function createAuthRouter(
   router.post('/2fa/verify', ...rl, async (req: Request, res: Response) => {
     try {
       const { tempToken, totpCode } = req.body as { tempToken: string; totpCode: string };
-      const payload = tokenService.verifyAccessToken(tempToken, config);
+      const payload = tokenService.verifyTempToken(tempToken, config);
       const user = await userStore.findById(payload.sub);
       if (!user || !user.totpSecret) {
         res.status(400).json({ error: 'User not found or 2FA not set up' });
@@ -1210,9 +1206,9 @@ export function createAuthRouter(
           res.status(400).json({ error: 'tempToken is required for 2FA mode', code: 'TEMP_TOKEN_REQUIRED' });
           return;
         }
-        let payload: ReturnType<typeof tokenService.verifyAccessToken>;
+        let payload: ReturnType<typeof tokenService.verifyTempToken>;
         try {
-          payload = tokenService.verifyAccessToken(tempToken, config);
+          payload = tokenService.verifyTempToken(tempToken, config);
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
           return;
@@ -1258,9 +1254,9 @@ export function createAuthRouter(
           return;
         }
         // Validate the temp token (proves the user already completed step 1 — password)
-        let tempPayload: ReturnType<typeof tokenService.verifyAccessToken>;
+        let tempPayload: ReturnType<typeof tokenService.verifyTempToken>;
         try {
-          tempPayload = tokenService.verifyAccessToken(tempToken, config);
+          tempPayload = tokenService.verifyTempToken(tempToken, config);
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
           return;
@@ -1326,7 +1322,7 @@ export function createAuthRouter(
           return;
         }
         try {
-          const payload = tokenService.verifyAccessToken(tempToken, config);
+          const payload = tokenService.verifyTempToken(tempToken, config);
           resolvedUserId = payload.sub;
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
@@ -1389,7 +1385,7 @@ export function createAuthRouter(
           return;
         }
         try {
-          const payload = tokenService.verifyAccessToken(tempToken, config);
+          const payload = tokenService.verifyTempToken(tempToken, config);
           resolvedUserId = payload.sub;
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
@@ -1439,10 +1435,7 @@ export function createAuthRouter(
       if (hasTotpEnabled) available2faMethods.push('totp');
       if (user.phoneNumber && authConfig.sms) available2faMethods.push('sms');
       if (authConfig.email?.sendMagicLink || authConfig.email?.mailer) available2faMethods.push('magic-link');
-      const tempToken = tokenService.generateTokenPair(
-        buildPayload(user, authConfig),
-        { ...authConfig, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-      ).accessToken;
+      const tempToken = tokenService.generateTempToken(buildPayload(user, authConfig), authConfig);
       // For GET-based OAuth redirects always redirect to the 2FA page
       const methods = available2faMethods.join(',');
       res.redirect(`${redirectTo}/auth/2fa?tempToken=${encodeURIComponent(tempToken)}&methods=${encodeURIComponent(methods)}`);

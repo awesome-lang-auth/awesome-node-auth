@@ -8,6 +8,22 @@ import { JwksClient, JwksService } from './jwks.service';
 
 let ephemeralWarningEmitted = false;
 
+/**
+ * Claim that marks a token signed with the access-token secret which is **not**
+ * an application session token.  Session (access) tokens carry no `purpose`.
+ * @internal
+ */
+export const TOKEN_PURPOSE_CLAIM = 'purpose';
+/** `purpose` of the 2FA step-up token (`tempToken`) issued after a password. @internal */
+export const TEMP_TOKEN_PURPOSE = '2fa';
+
+/** Lifetime of the 2FA step-up token. */
+const TEMP_TOKEN_EXPIRES_IN = '5m';
+
+function invalidAccessToken(): AuthError {
+  return new AuthError('Invalid or expired access token', 'INVALID_ACCESS_TOKEN', 401);
+}
+
 /** Reset ephemeral-warning flag. Exported for testing only. */
 export function _resetEphemeralWarning(): void {
   ephemeralWarningEmitted = false;
@@ -140,13 +156,51 @@ export class TokenService {
     return payload;
   }
 
-  verifyAccessToken(token: string, config: AuthConfig): AccessTokenPayload {
+  /**
+   * Sign the short-lived 2FA step-up token (`tempToken`) handed out after a
+   * correct password when a second factor is required.  It carries
+   * `purpose: '2fa'`, set after the payload claims so a custom claim cannot
+   * remove it: `verifyAccessToken` refuses it, and only `verifyTempToken`
+   * (the 2FA completion endpoints) accepts it.
+   */
+  generateTempToken(payload: AccessTokenPayload, config: AuthConfig): string {
+    const { iat, exp, ...claims } = payload;
+    return jwt.sign(
+      { ...claims, [TOKEN_PURPOSE_CLAIM]: TEMP_TOKEN_PURPOSE },
+      config.accessTokenSecret,
+      { expiresIn: TEMP_TOKEN_EXPIRES_IN } as jwt.SignOptions,
+    );
+  }
+
+  /**
+   * Verify a 2FA step-up token.  Only a token minted by `generateTempToken`
+   * passes: an application access token is refused.  Throws the same
+   * `INVALID_ACCESS_TOKEN` error as `verifyAccessToken`.
+   */
+  verifyTempToken(token: string, config: AuthConfig): AccessTokenPayload {
+    let payload: AccessTokenPayload;
     try {
-      const payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
-      return payload;
+      payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
     } catch {
-      throw new AuthError('Invalid or expired access token', 'INVALID_ACCESS_TOKEN', 401);
+      throw invalidAccessToken();
     }
+    if (payload?.[TOKEN_PURPOSE_CLAIM] !== TEMP_TOKEN_PURPOSE) throw invalidAccessToken();
+    return payload;
+  }
+
+  /**
+   * Verify an application session (access) token.  A token signed with the
+   * same secret for another purpose (the 2FA step-up token) is refused.
+   */
+  verifyAccessToken(token: string, config: AuthConfig): AccessTokenPayload {
+    let payload: AccessTokenPayload;
+    try {
+      payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
+    } catch {
+      throw invalidAccessToken();
+    }
+    if (payload?.[TOKEN_PURPOSE_CLAIM] === TEMP_TOKEN_PURPOSE) throw invalidAccessToken();
+    return payload;
   }
 
   verifyRefreshToken(token: string, config: AuthConfig): AccessTokenPayload {
