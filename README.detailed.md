@@ -1207,8 +1207,9 @@ app.use('/auth', auth.router({ defaultRegister: true }));
 The handler:
 
 1. requires `email` and `password` to be non-empty strings — otherwise `400` with code `INVALID_INPUT`;
-2. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
-3. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
+2. refuses an address that `userStore.findByEmail` already finds — `409 {"error":"User already exists","code":"USER_EXISTS"}`, and nothing is created. The address is compared as sent, like `POST /login` does. The check is not atomic, so a store that must never hold two accounts under one address should also enforce a unique e-mail;
+3. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
+4. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
 
 The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active. At startup the router writes an `INFO` line to `stderr` when the built-in handler is mounted, or a `WARN` line when `defaultRegister` is set but `userStore.create` is not implemented. To accept other fields, provide an `onRegister` callback that picks them explicitly, as in the example above.
 

@@ -4,7 +4,9 @@
  * The handler is opt-in (without `onRegister` or `defaultRegister`,
  * `POST /register` is not mounted, as in 1.9.0) and persists an allow-list of
  * fields only.  Tests tagged REGRESSION-REGISTER-MASS-ASSIGNMENT guard against
- * forwarding the raw request body to `IUserStore.create`.
+ * forwarding the raw request body to `IUserStore.create`; those tagged
+ * REGRESSION-REGISTER-EXISTING-EMAIL guard against a second account under an
+ * address that already has one.
  */
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import express from 'express';
@@ -146,6 +148,57 @@ describe('built-in register handler (defaultRegister)', () => {
     expect(second.status).toBe(201);
     expect(onRegister).toHaveBeenCalledWith({ email: 'b@x.test', password: 'secret-b', plan: 'pro' }, config, expect.anything());
     expect(sendWelcome).toHaveBeenLastCalledWith('b@x.test', { email: 'b@x.test', plan: 'pro' });
+  });
+
+  it('REGRESSION-REGISTER-EXISTING-EMAIL: refuses an address that already has an account (409 USER_EXISTS) and creates nothing', async () => {
+    const store = new InMemoryUserStore();
+    const existing = await store.create({
+      email: 'victim@x.test',
+      password: await passwordService.hash('victim-pass'),
+      isEmailVerified: true,
+    });
+    const before = structuredClone(await store.findById(existing.id));
+    const createSpy = vi.spyOn(store, 'create');
+    const app = buildApp(store, { defaultRegister: true });
+
+    const res = await request(app)
+      .post('/auth/register')
+      .send({ email: 'victim@x.test', password: 'attacker-pass', firstName: 'Mallory' });
+
+    expect(res.status).toBe(409);
+    expect(res.text).toBe('{"error":"User already exists","code":"USER_EXISTS"}');
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(await store.findById(existing.id)).toEqual(before);
+    expect((await store.listUsers(100, 0)).filter((u) => u.email === 'victim@x.test')).toHaveLength(1);
+
+    // The owner still signs in with the original password; the attacker's is refused.
+    const owner = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+      .send({ email: 'victim@x.test', password: 'victim-pass' });
+    expect(owner.status).toBe(200);
+    const attacker = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+      .send({ email: 'victim@x.test', password: 'attacker-pass' });
+    expect(attacker.status).toBe(401);
+  });
+
+  it('REGRESSION-REGISTER-EXISTING-EMAIL: a store that returns the newest match cannot be taken over through a second registration', async () => {
+    // A store without a unique index whose lookup returns the newest row
+    // (for example an unordered query): without the check, the second
+    // account would receive tokens carrying the victim's e-mail address.
+    const store = new InMemoryUserStore();
+    store.findByEmail = async (email: string) =>
+      (await store.listUsers(1000, 0)).filter((u) => u.email === email).pop() ?? null;
+    await store.create({ email: 'victim@x.test', password: await passwordService.hash('victim-pass') });
+    const app = buildApp(store, { defaultRegister: true });
+
+    const res = await request(app).post('/auth/register').send({ email: 'victim@x.test', password: 'attacker-pass' });
+    expect(res.status).toBe(409);
+
+    const attacker = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+      .send({ email: 'victim@x.test', password: 'attacker-pass' });
+    expect(attacker.status).toBe(401);
+    const owner = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+      .send({ email: 'victim@x.test', password: 'victim-pass' });
+    expect(owner.status).toBe(200);
   });
 
   it('keeps the 400 INVALID_INPUT answer byte-identical', async () => {
