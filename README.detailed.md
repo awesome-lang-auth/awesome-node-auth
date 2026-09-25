@@ -2799,7 +2799,7 @@ const auth = new AuthConfigurator(config, userStore, { eventBus }); // AuthConfi
 app.use(auth.buildAllRouters({
   auth: { rateLimiter: limiter },  // optional — RouterOptions for the auth router
   admin: {                         // required — AdminOptions for the admin router
-    accessPolicy: 'first-user',
+    accessPolicy: (user) => user.roles.includes('admin'), // grant with auth.promoteToAdmin(userId, { rbacStore })
     sessionStore,
     rbacStore,
   },
@@ -3311,7 +3311,7 @@ bus.publish(AuthEventNames.AUTH_LOGIN_FAILED, {
 
 #### Automatic event publication
 
-When an `AuthEventBus` is passed to the routers, they publish the standard events themselves — no `tools.track()` call is needed for these. Pass it once to `AuthConfigurator` (used by `auth.router()`, `buildAllRouters()`, `promoteToAdmin()` and `revokeAdmin()`), or per router:
+When an `AuthEventBus` is passed to the routers, they publish the standard events on it themselves. Pass it once to `AuthConfigurator` (used by `auth.router()`, `buildAllRouters()`, `promoteToAdmin()` and `revokeAdmin()`), or per router:
 
 ```ts
 const bus = new AuthEventBus();
@@ -3319,10 +3319,23 @@ const bus = new AuthEventBus();
 const auth = new AuthConfigurator(config, userStore, { eventBus: bus });
 // or
 app.use('/auth', createAuthRouter(userStore, config, { eventBus: bus }));
-app.use('/admin', createAdminRouter(userStore, { accessPolicy: 'first-user', jwtSecret, eventBus: bus }));
+app.use('/admin', createAdminRouter(userStore, { accessPolicy: 'is-admin-flag', jwtSecret, eventBus: bus }));
 ```
 
-Success events are published after the operation has completed. Router events carry `userId` and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
+The routers publish on the bus only, and `AuthTools` does not subscribe to it: telemetry, SSE and outgoing webhooks receive none of these events until you forward the ones you need with `tools.track()`. When you do, give `AuthTools` its own bus (or guard against re-entry): `track()` publishes on the bus it was given, so a listener that calls `track()` on the same bus is called again by its own event.
+
+```ts
+const tools = new AuthTools(new AuthEventBus(), { telemetryStore, webhookStore }); // not `bus`
+
+bus.onEvent(AuthEventNames.AUTH_LOGIN_FAILED, (e) => {
+  void tools.track(e.event, e.data, {
+    userId: e.userId, tenantId: e.tenantId, sessionId: e.sessionId,
+    correlationId: e.correlationId, ip: e.ip, userAgent: e.userAgent,
+  });
+});
+```
+
+Success events are published after the operation has completed. Router events carry `userId` (except `AUTH_LOGIN_FAILED` and `AUTH_OAUTH_CONFLICT`; `AUTH_LOGOUT` has it only when the request carried a valid `accessToken` cookie) and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
 
 **Auth router** (`createAuthRouter` / `auth.router()`):
 
@@ -3333,7 +3346,7 @@ Success events are published after the operation has completed. Router events ca
 | `POST /2fa/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'totp' }` |
 | `POST /magic-link/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'magic-link' }` |
 | `POST /sms/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'sms' }` |
-| `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` |
+| `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` — `provider` is the user record's `loginProvider` when set, otherwise the provider of this login |
 | `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, email, providerAccountId }` — the two conflict fields are picked from the `OAUTH_ACCOUNT_CONFLICT` error's `data` when they are strings; nothing else from it is copied |
 | `POST /logout` | `AUTH_LOGOUT` | — |
 | `POST /refresh` | `SESSION_ROTATED` | `{ previousSessionId }` |
