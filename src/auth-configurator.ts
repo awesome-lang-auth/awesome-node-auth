@@ -134,8 +134,10 @@ export class AuthConfigurator {
     const removeRole = method === 'role' || method === 'both';
     const writableUserStore = this.userStore as WritableUserStore;
 
-    // Check every prerequisite before changing anything: a revocation must
-    // fail closed, never half-succeed or report a step that did not run.
+    // Check every prerequisite before changing anything, so a missing store
+    // never leaves a partial revocation or reports a step that did not run.
+    // (A store error part-way through 'both' can still leave a partial state;
+    // it propagates to the caller and no event is published.)
     if (clearFlag && typeof writableUserStore.update !== 'function') {
       throw new Error(`IUserStore.update is required for revokeAdmin({ method: "${method}" })`);
     }
