@@ -98,7 +98,8 @@ export interface RouterOptions {
    * create the user, returning the new `BaseUser` object.
    *
    * If omitted the register endpoint is **not** mounted (useful for projects
-   * where self-registration should not be available).
+   * where self-registration should not be available), unless
+   * `defaultRegister: true` opts into the built-in handler.
    *
    * @example
    * ```ts
@@ -109,6 +110,25 @@ export interface RouterOptions {
    * ```
    */
   onRegister?: (data: Record<string, unknown>, config: AuthConfig, options: RouterOptions) => Promise<BaseUser>;
+
+  /**
+   * Mount `POST /auth/register` with the built-in handler when `onRegister`
+   * is omitted.  Off by default: without `onRegister` and without this flag
+   * the register endpoint is not mounted.
+   *
+   * The built-in handler requires `email` and `password` (non-empty strings),
+   * hashes the password and calls `userStore.create` with an allow-list of
+   * fields: `email`, the password hash, and `firstName` / `lastName` when they
+   * are strings.  Every other field of the request body (for example `id`,
+   * `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, token fields,
+   * `tenantId` or `metadata`) is dropped.  Provide `onRegister` to accept
+   * other fields.
+   *
+   * Ignored when `onRegister` is provided and in Resource Server mode.
+   *
+   * @default false
+   */
+  defaultRegister?: boolean;
 
   /**
    * Local base path where this specific auth router instance is mounted.
@@ -187,6 +207,12 @@ export interface RouterOptions {
    */
   eventBus?: AuthEventBus;
 }
+
+/**
+ * Profile fields the built-in register handler copies from the request body:
+ * the fields a user may set on themselves through `PATCH /profile`.
+ */
+const DEFAULT_REGISTER_PROFILE_FIELDS = ['firstName', 'lastName'] as const;
 
 const tokenService = new TokenService();
 const passwordService = new PasswordService();
@@ -512,26 +538,40 @@ export function createAuthRouter(
   const allowedOrigins = buildAllowedOrigins(config, options);
   const isResourceServer = config.resourceServer?.enabled === true;
   const eventBus = options.eventBus;
-  const registerHandler: RouterOptions['onRegister'] | undefined = !isResourceServer
-    ? (options.onRegister ?? (typeof userStore.create === 'function'
-      ? async (data: Record<string, unknown>) => {
-        if (typeof data['email'] !== 'string' || typeof data['password'] !== 'string' || !data['email'] || !data['password']) {
-          throw new AuthError('Email and password are required', 'INVALID_INPUT', 400);
-        }
-        const hash = await passwordService.hash(data['password'], config.bcryptSaltRounds);
-        return userStore.create({ ...data, email: data['email'], password: hash });
-      }
-      : undefined))
-    : undefined;
+  // Built-in register handler (opt-in via `defaultRegister: true`). It persists
+  // an allow-list only: `email`, the password hash and the profile fields.
+  // Anything else in the body (id, role, isAdmin, isEmailVerified, tokens,
+  // tenantId, metadata, ...) is dropped, never forwarded to `create`.
+  const defaultRegisterHandler = async (data: Record<string, unknown>): Promise<BaseUser> => {
+    const body: Record<string, unknown> = data && typeof data === 'object' ? data : {};
+    const email = body['email'];
+    const password = body['password'];
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+      throw new AuthError('Email and password are required', 'INVALID_INPUT', 400);
+    }
+    const hash = await passwordService.hash(password, config.bcryptSaltRounds);
+    const newUser: Partial<BaseUser> = { email, password: hash };
+    for (const field of DEFAULT_REGISTER_PROFILE_FIELDS) {
+      const value = body[field];
+      if (typeof value === 'string') newUser[field] = value;
+    }
+    return userStore.create(newUser);
+  };
+  const registerHandler: RouterOptions['onRegister'] | undefined = isResourceServer
+    ? undefined
+    : (options.onRegister
+      ?? (options.defaultRegister === true && typeof userStore.create === 'function'
+        ? defaultRegisterHandler
+        : undefined));
 
-  if (!isResourceServer && !options.onRegister) {
+  if (!isResourceServer && !options.onRegister && options.defaultRegister === true) {
     if (registerHandler) {
       process.stderr.write(
-        '[awesome-node-auth] INFO: POST /register is enabled with the default userStore.create + password hash handler.\n',
+        '[awesome-node-auth] INFO: POST /register is enabled with the built-in handler (defaultRegister); it stores email, the password hash, firstName and lastName only.\n',
       );
     } else {
       process.stderr.write(
-        '[awesome-node-auth] WARN: POST /register was not mounted because onRegister is missing and userStore.create is unavailable.\n',
+        '[awesome-node-auth] WARN: POST /register was not mounted: defaultRegister is set but userStore.create is unavailable.\n',
       );
     }
   }
@@ -797,14 +837,16 @@ export function createAuthRouter(
     }
   });
 
-  // POST /register (optional — only mounted when onRegister is provided)
+  // POST /register (optional — only mounted when onRegister is provided or defaultRegister is set)
   if (registerHandler && !isResourceServer) {
     router.post('/register', ...rl, async (req: Request, res: Response) => {
       try {
         const data = req.body as Record<string, unknown>;
         const user = await registerHandler(data, config, options);
         if (config.email?.sendWelcome) {
-          await config.email.sendWelcome(user.email, data);
+          // The welcome callback gets the request data without the plaintext password.
+          const { password: _password, ...welcomeData } = data ?? {};
+          await config.email.sendWelcome(user.email, welcomeData);
         } else if (config.email?.mailer) {
           const mailer = new MailerService(config.email.mailer, config.templateStore);
           const siteUrl = resolveSiteUrl(req, config, allowedOrigins);

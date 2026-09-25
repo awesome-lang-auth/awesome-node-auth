@@ -1049,10 +1049,20 @@ describe('POST /auth/register', () => {
     expect(onRegister).toHaveBeenCalledWith({ email: 'new@test.com', password: 'mypass' }, config, expect.objectContaining({ onRegister }));
   });
 
-  it('uses the default register handler when onRegister is not configured', async () => {
+  it('returns 404 when onRegister is not configured', async () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
+    const res = await request(app)
+      .post('/auth/register')
+      .send({ email: 'new@test.com', password: 'mypass' });
+    expect(res.status).toBe(404);
+  });
+
+  it('uses the built-in register handler when defaultRegister is set', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/auth', createAuthRouter(store, config, { defaultRegister: true }));
     const res = await request(app)
       .post('/auth/register')
       .send({ email: 'new@test.com', password: 'mypass' });

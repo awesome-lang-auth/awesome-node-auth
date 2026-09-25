@@ -102,10 +102,10 @@ describe('buildAuthOpenApiSpec', () => {
     expect(buildAuthOpenApiSpec({ hasRegister: false }, '/auth').paths['/auth/register']).toBeUndefined();
   });
 
-  it('auth router OpenAPI includes /register when the default register handler is active', async () => {
+  it('auth router OpenAPI includes /register when the built-in register handler is enabled (defaultRegister)', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/auth', createAuthRouter(userStore, config, { swagger: true }));
+    app.use('/auth', createAuthRouter(userStore, config, { swagger: true, defaultRegister: true }));
 
     const res = await request(app).get('/auth/openapi.json');
 
@@ -288,11 +288,11 @@ describe('createAuthRouter — swagger routes', () => {
     }
   });
 
-  it('spec includes register path when the default register handler is available', async () => {
+  it('spec does not include register path when onRegister is absent', async () => {
     const app = buildAuthApp(true);
     const res = await request(app).get('/auth/openapi.json');
     expect(res.status).toBe(200);
-    expect(res.body.paths['/auth/register']).toBeDefined();
+    expect(res.body.paths['/auth/register']).toBeUndefined();
   });
 });
 

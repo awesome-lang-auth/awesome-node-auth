@@ -139,7 +139,7 @@ describe('Auth Router Integration', () => {
   });
 
   describe('POST /auth/register', () => {
-    it('mounts the default register handler when onRegister is omitted', async () => {
+    it('mounts the built-in register handler when defaultRegister is set and onRegister is omitted', async () => {
       const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
       const create = vi.fn(async (data: Partial<BaseUser>) => ({
         id: '2',
@@ -149,19 +149,37 @@ describe('Auth Router Integration', () => {
       store.create = create as unknown as typeof store.create;
       const registerApp = express();
       registerApp.use(express.json());
+      registerApp.use('/auth', createAuthRouter(store, config, { defaultRegister: true }));
+
+      const res = await request(registerApp)
+        .post('/auth/register')
+        .send({ email: 'new@test.com', password: 'new-password', firstName: 'New', isAdmin: true });
+
+      expect(res.status).toBe(201);
+      expect(create).toHaveBeenCalledTimes(1);
+      const created = create.mock.calls[0][0] as Partial<BaseUser>;
+      expect(Object.keys(created).sort()).toEqual(['email', 'firstName', 'password']);
+      expect(created.email).toBe('new@test.com');
+      expect(created.firstName).toBe('New');
+      expect(created.password).not.toBe('new-password');
+      expect(await passwordService.compare('new-password', created.password as string)).toBe(true);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('POST /register is enabled with the built-in handler (defaultRegister)'));
+      stderrSpy.mockRestore();
+    });
+
+    it('does not mount POST /register when neither onRegister nor defaultRegister is set', async () => {
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const registerApp = express();
+      registerApp.use(express.json());
       registerApp.use('/auth', createAuthRouter(store, config));
 
       const res = await request(registerApp)
         .post('/auth/register')
         .send({ email: 'new@test.com', password: 'new-password' });
 
-      expect(res.status).toBe(201);
-      expect(create).toHaveBeenCalledTimes(1);
-      const created = create.mock.calls[0][0] as Partial<BaseUser>;
-      expect(created.email).toBe('new@test.com');
-      expect(created.password).not.toBe('new-password');
-      expect(await passwordService.compare('new-password', created.password as string)).toBe(true);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('default userStore.create + password hash handler'));
+      expect(res.status).toBe(404);
+      expect(store.create).not.toHaveBeenCalled();
+      expect(stderrSpy).not.toHaveBeenCalledWith(expect.stringContaining('POST /register'));
       stderrSpy.mockRestore();
     });
   });

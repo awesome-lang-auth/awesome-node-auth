@@ -67,7 +67,7 @@ app.listen(3000);
 - 🧩 **Strategy Pattern** — Plug in only the auth methods your app needs
 - 🛡️ **Middleware** — JWT verification middleware (cookie or `Authorization: Bearer`)
 - 🚠 **Express Router** — Drop-in `/auth` router with all endpoints pre-wired
-- 📝 **Register Endpoint** — `POST /auth/register` with a default handler, or your own via the `onRegister` callback
+- 📝 **Register Endpoint** — Optional `POST /auth/register` via `onRegister` callback, or the built-in handler with `defaultRegister: true`
 - 👤 **Rich `/me` Profile** — Returns profile, metadata, roles, and permissions
 - 🗩 **Session Cleanup** — Optional `POST /auth/sessions/cleanup` for cron-based expiry
 - 🔒 **CSRF Protection** — Double-submit cookie pattern, opt-in via `csrf.enabled`
@@ -356,7 +356,7 @@ When you mount `auth.router()`, the following endpoints are available:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/auth/register` | Register a new user _(optional — requires `onRegister` in `RouterOptions`)_ |
+| `POST` | `/auth/register` | Register a new user _(optional — requires `onRegister` or `defaultRegister: true` in `RouterOptions`)_ |
 | `POST` | `/auth/login` | Login with email/password |
 | `POST` | `/auth/logout` | Logout and clear cookies |
 | `POST` | `/auth/refresh` | Refresh access token |
@@ -1135,7 +1135,7 @@ await userStore.create({
 
 ## User Registration
 
-`POST /auth/register` is mounted whenever a registration handler is available (never in Resource Server mode): the `onRegister` callback in `RouterOptions` when you provide one, otherwise the [default handler](#default-register-handler) as long as your `IUserStore` implements `create`.
+`POST /auth/register` is **optional** — it is only mounted when you provide an `onRegister` callback in `RouterOptions`, or set `defaultRegister: true` to use the [built-in handler](#default-register-handler). This lets you opt out of self-registration entirely for projects where it is not needed.
 
 The callback receives three arguments: `(data, config, options)` where `options` is the `RouterOptions` object passed to `createAuthRouter`. Use `buildUiLink` to generate correct redirect URLs regardless of whether the built-in UI is enabled:
 
@@ -1189,19 +1189,25 @@ app.use('/auth', auth.router({
 
 After creating the user, if `config.email.sendWelcome` or `config.email.mailer` is configured, a welcome email is sent automatically.
 
-> **Tip:** Omitting `onRegister` does **not** disable self-registration when `userStore.create` is implemented — the default handler below is mounted instead. For admin-only or invite-only systems, pass an `onRegister` that rejects the request, e.g. `onRegister: async () => { throw new AuthError('Registration is disabled', 'REGISTRATION_DISABLED', 403); }`.
+`config.email.sendWelcome(to, data)` receives the request data **without** the `password` field, with `onRegister` and with the built-in handler alike.
+
+> **Tip:** Omit `onRegister` (and `defaultRegister`) entirely for admin-only or invite-only systems where users should not be able to sign up themselves.
 
 ### Default register handler
 
-When `onRegister` is omitted and `userStore.create` is implemented, the router mounts `POST /auth/register` with a built-in handler and writes an `INFO` line to `stderr` at startup (a `WARN` line when neither is available and the route is not mounted). The handler:
+Set `defaultRegister: true` in `RouterOptions` to mount `POST /auth/register` with a built-in handler instead of writing an `onRegister` callback. It is off by default, it is never mounted in Resource Server mode, and `onRegister` takes precedence when both are set.
+
+```typescript
+app.use('/auth', auth.router({ defaultRegister: true }));
+```
+
+The handler:
 
 1. requires `email` and `password` to be non-empty strings — otherwise `400` with code `INVALID_INPUT`;
 2. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
-3. calls `userStore.create({ ...body, email, password: hash })` — **the whole request body is forwarded** to `create`, with `password` replaced by its hash.
+3. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
 
-The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active.
-
-> **Security:** since the request body is forwarded as-is, `create` receives any field the client sends (for example `id`, `isAdmin` or `isEmailVerified`). Unless your `create` persists only the fields you accept, provide an `onRegister` callback that picks them explicitly, as in the example above.
+The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active. At startup the router writes an `INFO` line to `stderr` when the built-in handler is mounted, or a `WARN` line when `defaultRegister` is set but `userStore.create` is not implemented. To accept other fields, provide an `onRegister` callback that picks them explicitly, as in the example above.
 
 ## Session Cleanup (Cron)
 
@@ -1273,7 +1279,7 @@ const authConfig: AuthConfig = {
 | Route | Description |
 |-------|-------------|
 | `/login` | Login form |
-| `/register` | Registration form _(shown only when `onRegister` is configured)_ |
+| `/register` | Registration form _(shown only when `onRegister` or `defaultRegister: true` is configured)_ |
 | `/forgot-password` | Password reset request |
 | `/reset-password` | Password reset confirmation |
 | `/verify-email` | Email verification landing page |
@@ -2929,7 +2935,8 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `oauthStrategies` | `GenericOAuthStrategy[]` | Enables `GET /auth/oauth/:name` for any additional provider |
 | `linkedAccountsStore` | `ILinkedAccountsStore` | Enables `GET /auth/linked-accounts`, `DELETE /auth/linked-accounts/:provider/:id`, `POST /auth/link-request`, and `POST /auth/link-verify` |
 | `settingsStore` | `ISettingsStore` | Enables system 2FA policy check in `POST /auth/2fa/disable` |
-| `onRegister` | `(data, config, options) => Promise<BaseUser>` | Custom handler for `POST /auth/register`; without it the [default register handler](#default-register-handler) is used when `userStore.create` exists |
+| `onRegister` | `(data, config, options) => Promise<BaseUser>` | Enables `POST /auth/register` |
+| `defaultRegister` | `boolean` | Enables `POST /auth/register` with the [built-in handler](#default-register-handler) (allow-listed fields) when `onRegister` is omitted. Default: `false` |
 | `metadataStore` | `IUserMetadataStore` | Adds `metadata` field to `GET /me` response |
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |
@@ -3979,7 +3986,7 @@ The table below maps SuperTokens recipes to awesome-node-auth equivalents so you
 | Change password | `POST /change-password` | Authenticated; verifies current password |
 | Change email | `POST /change-email/request` + `POST /change-email/confirm` | Verification to new address, notification to old |
 | Admin dashboard UI | `createAdminRouter()` | Self-contained UI + REST API, Bearer-token protected; email policy + 2FA policy controls |
-| User registration | `POST /auth/register` _(optional)_ | Enabled via `onRegister` callback in `RouterOptions` |
+| User registration | `POST /auth/register` _(optional)_ | Enabled via `onRegister` callback or `defaultRegister: true` in `RouterOptions` |
 | Rich profile endpoint | `GET /auth/me` | Returns name, provider, roles, permissions, metadata |
 | Account linking | `ILinkedAccountsStore` + `GET/DELETE /linked-accounts` | Multiple OAuth providers per user, user can view and unlink; safe without email-based takeover |
 | Attack protection | _(not built-in)_ | Use `rateLimiter` + external WAF |

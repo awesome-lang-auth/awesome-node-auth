@@ -17,24 +17,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - **`AuthorizedAdminUser`** type — the admin guard loads the user's roles from `rbacStore` before evaluating `accessPolicy`; custom policies and `req.user` receive `BaseUser & { roles: string[] }`.
 - **`AdminOptions.eventBus`**, **`AdminOptions.rateLimiter`** (applied to the promote endpoint) and **`AdminOptions.silent`** (suppresses the startup tab summary).
 
+#### Registration
+- **`RouterOptions.defaultRegister`** — opt-in built-in handler for `POST /register` when `onRegister` is omitted (never in Resource Server mode). It requires `email` and `password` (`400 INVALID_INPUT` otherwise), hashes the password and stores an allow-list of fields: `email`, the password hash, and `firstName` / `lastName` when they are strings. Every other field of the request body is dropped. Without `onRegister` or `defaultRegister` the route is not mounted, as in 1.9.0; the built-in UI and the OpenAPI spec follow the same rule.
+
 #### Event publication
 - **Automatic event publication** — when an `AuthEventBus` is passed (`RouterOptions.eventBus`, `AdminOptions.eventBus`, or `AuthConfiguratorOptions.eventBus`), the auth router publishes login success/failure, logout, session rotation, registration, 2FA enable/disable, password change, email verification, email change, account deletion and OAuth success/conflict events, and the admin router publishes `ROLE_ASSIGNED` / `ROLE_REVOKED`. Payloads include `ip`, `userAgent` and `correlationId` (`X-Correlation-Id`).
 - **`AuthEventNames.USER_EMAIL_CHANGED`** (`identity.user.email.changed`) — published by `POST /change-email/confirm` with `{ oldEmail, newEmail }`.
 - **`AuthToolsOptions.sseDistributor`** — custom `ISseDistributor` used by `AuthTools.notify()` instead of the built-in `SseManager` broadcaster.
 
 #### Tests
-- `tests/dx-improvements.test.ts`, plus event-publication, default-register and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
+- `tests/dx-improvements.test.ts` and `tests/register-default-handler.test.ts` (`REGRESSION-REGISTER-MASS-ASSIGNMENT`), plus event-publication, built-in register handler and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
 
 #### Docs
 - README: `buildAllRouters()` quick start, "Admin UI" and "Two login endpoints, two audiences".
-- README.detailed: `buildAllRouters()`, admin policy and `AuthorizedAdminUser`, `promoteToAdmin`/`revokeAdmin`, the promote endpoint, automatic event publication, `USER_EMAIL_CHANGED`, `IUserStore.update?()`, `sseDistributor` and the default register handler.
+- README.detailed: `buildAllRouters()`, admin policy and `AuthorizedAdminUser`, `promoteToAdmin`/`revokeAdmin`, the promote endpoint, automatic event publication, `USER_EMAIL_CHANGED`, `IUserStore.update?()`, `sseDistributor` and the built-in register handler (`defaultRegister`).
 
 ### Changed
-- **`POST /register` is mounted by default** when `onRegister` is omitted and `userStore.create` is implemented (never in Resource Server mode). The default handler requires `email` and `password`, hashes the password and forwards the request body to `userStore.create`; the built-in UI and the OpenAPI spec expose `/register` accordingly. Previously the route answered `404` without `onRegister`. Set `onRegister` to control which fields are accepted, or to reject self-registration.
 - OAuth logins set `loginProvider` to the provider name when the user record has none, so the `loginProvider` token claim is the provider instead of `'local'`.
-- The auth and admin routers write startup `INFO`/`WARN` lines to `stderr` (register handler status, enabled admin tabs); `AuthTools` warns when both `sse: true` and `sseDistributor` are set.
+- The auth and admin routers write startup `INFO`/`WARN` lines to `stderr` (built-in register handler status when `defaultRegister` is set, enabled admin tabs); `AuthTools` warns when both `sse: true` and `sseDistributor` are set.
 - The admin panel sign-in form points end users to `/auth/ui/login`.
 - `package-lock.json` refreshed within the existing dependency ranges.
+
+### Security
+- `POST /register`: `config.email.sendWelcome(to, data)` no longer receives the plaintext `password` in `data`, with a custom `onRegister` as well as with the built-in handler.
+- The built-in register handler is opt-in (`defaultRegister`) and persists an allow-list of fields only.
 
 ---
 
