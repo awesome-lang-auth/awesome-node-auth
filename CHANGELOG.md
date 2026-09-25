@@ -5,6 +5,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
+## [Unreleased]
+
+### Added
+
+#### One-call mounting and admin bootstrap
+- **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`).
+- **`AuthConfigurator.promoteToAdmin()` / `revokeAdmin()`** — grant or remove admin access by role (`rbacStore`, the default) or by the `isAdmin` flag (`IUserStore.update`); `revokeAdmin` also accepts `method: 'both'`.
+- **`POST /users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). Registered **without** the `/api` segment used by the other admin REST endpoints.
+- **`IUserStore.update?(userId, patch)`** — optional partial update, used by the flag-based promote/revoke.
+- **`AuthorizedAdminUser`** type — the admin guard loads the user's roles from `rbacStore` before evaluating `accessPolicy`; custom policies and `req.user` receive `BaseUser & { roles: string[] }`.
+- **`AdminOptions.eventBus`**, **`AdminOptions.rateLimiter`** (applied to the promote endpoint) and **`AdminOptions.silent`** (suppresses the startup tab summary).
+
+#### Event publication
+- **Automatic event publication** — when an `AuthEventBus` is passed (`RouterOptions.eventBus`, `AdminOptions.eventBus`, or `AuthConfiguratorOptions.eventBus`), the auth router publishes login success/failure, logout, session rotation, registration, 2FA enable/disable, password change, email verification, email change, account deletion and OAuth success/conflict events, and the admin router publishes `ROLE_ASSIGNED` / `ROLE_REVOKED`. Payloads include `ip`, `userAgent` and `correlationId` (`X-Correlation-Id`).
+- **`AuthEventNames.USER_EMAIL_CHANGED`** (`identity.user.email.changed`) — published by `POST /change-email/confirm` with `{ oldEmail, newEmail }`.
+- **`AuthToolsOptions.sseDistributor`** — custom `ISseDistributor` used by `AuthTools.notify()` instead of the built-in `SseManager` broadcaster.
+
+#### Tests
+- `tests/dx-improvements.test.ts`, plus event-publication, default-register and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
+
+#### Docs
+- README: `buildAllRouters()` quick start, "Admin UI" and "Two login endpoints, two audiences".
+- README.detailed: `buildAllRouters()`, admin policy and `AuthorizedAdminUser`, `promoteToAdmin`/`revokeAdmin`, the promote endpoint, automatic event publication, `USER_EMAIL_CHANGED`, `IUserStore.update?()`, `sseDistributor` and the default register handler.
+
+### Changed
+- **`POST /register` is mounted by default** when `onRegister` is omitted and `userStore.create` is implemented (never in Resource Server mode). The default handler requires `email` and `password`, hashes the password and forwards the request body to `userStore.create`; the built-in UI and the OpenAPI spec expose `/register` accordingly. Previously the route answered `404` without `onRegister`. Set `onRegister` to control which fields are accepted, or to reject self-registration.
+- OAuth logins set `loginProvider` to the provider name when the user record has none, so the `loginProvider` token claim is the provider instead of `'local'`.
+- The auth and admin routers write startup `INFO`/`WARN` lines to `stderr` (register handler status, enabled admin tabs); `AuthTools` warns when both `sse: true` and `sseDistributor` are set.
+- The admin panel sign-in form points end users to `/auth/ui/login`.
+- `package-lock.json` refreshed within the existing dependency ranges.
+
+---
+
 ## [1.9.0] — 2026-04-29
 
 ### Added
