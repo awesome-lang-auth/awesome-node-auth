@@ -37,5 +37,27 @@ jobs:
       - name: Build
         run: npm run build
 
+      # A version published by hand (e.g. the first release of a new package name)
+      # is not published again: the run skips npm publish and stays green.
+      - name: Check whether this version is already on npm
+        id: registry
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          STATUS=0
+          FOUND="$(npm view "$NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")" || STATUS=$?
+          if [ "$STATUS" -eq 0 ] && [ "$FOUND" = "$VERSION" ]; then
+            echo "::notice::$NAME@$VERSION is already on the npm registry: skipping npm publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif { [ "$STATUS" -eq 0 ] && [ -z "$FOUND" ]; } || grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+            echo "$NAME@$VERSION is not on the npm registry yet: publishing it."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/npm-view.err"
+            echo "::error::Could not tell whether $NAME@$VERSION is on the npm registry (npm view exit $STATUS, output '$FOUND')."
+            exit 1
+          fi
+
       - name: Publish
+        if: steps.registry.outputs.skip != 'true'
         run: npm publish --access public --provenance
