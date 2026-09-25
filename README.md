@@ -70,7 +70,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Auth strategies** | Email/password · OAuth 2.0 (Google, GitHub, custom) · Magic links · SMS OTP · TOTP 2FA |
 | **Token management** | HttpOnly-cookie or Bearer mode · automatic access/refresh rotation · `__Host-`/`__Secure-` cookie prefixes |
 | **Identity Provider (IdP) mode** *(v1.9)* | RS256-signed JWTs · public JWKS endpoint (`/.well-known/jwks.json`) · Resource Server middleware · zero new dependencies |
-| **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · L1/L2 caching decorators |
+| **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · works behind your own L1/L2 cache layers |
 | **Dynamic email templates** *(v1.6)* | `ITemplateStore` — per-language mail templates + UI i18n with safe hardcoded fallback · built-in `MemoryTemplateStore` |
 | **CSRF protection** | Double-submit cookie pattern · `__Host-` prefix hardening against cookie-tossing |
 | **Account management** | Registration · change email/password · account deletion · email verification (none/lazy/strict) |
