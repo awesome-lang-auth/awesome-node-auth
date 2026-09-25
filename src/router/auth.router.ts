@@ -26,6 +26,8 @@ import { AuthError } from '../models/errors';
 import { buildAuthOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { buildUiRouter } from './ui.router';
 import { JwksService } from '../services/jwks.service';
+import { AuthEventBus } from '../events/auth-event-bus';
+import { AuthEventNames } from '../events/auth-event-names';
 
 export interface RouterOptions {
   googleStrategy?: GoogleStrategy;
@@ -178,6 +180,12 @@ export interface RouterOptions {
     secondaryColor?: string;
     logoUrl?: string;
   };
+
+  /**
+   * Optional auth event bus. When provided, core auth lifecycle events are
+   * published automatically from the router.
+   */
+  eventBus?: AuthEventBus;
 }
 
 const tokenService = new TokenService();
@@ -391,6 +399,40 @@ function isBearerRequest(req: Request): boolean {
   return req.headers['x-auth-strategy'] === 'bearer';
 }
 
+function getRequestEventContext(req: Request): {
+  correlationId?: string;
+  ip?: string;
+  userAgent?: string;
+} {
+  const correlationHeader = req.headers['x-correlation-id'];
+  const correlationId = Array.isArray(correlationHeader) ? correlationHeader[0] : correlationHeader;
+  const userAgentHeader = req.headers['user-agent'];
+  const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
+  return {
+    correlationId,
+    ip: req.ip || req.socket.remoteAddress,
+    userAgent,
+  };
+}
+
+function publishRouterEvent(
+  eventBus: AuthEventBus | undefined,
+  eventName: string,
+  req: Request,
+  payload: {
+    data?: unknown;
+    userId?: string;
+    tenantId?: string;
+    sessionId?: string;
+  } = {},
+): void {
+  if (!eventBus) return;
+  eventBus.publish(eventName, {
+    ...getRequestEventContext(req),
+    ...payload,
+  });
+}
+
 /**
  * Issue tokens to the client.  When the request carries the
  * `X-Auth-Strategy: bearer` header the tokens are returned in the JSON
@@ -418,7 +460,7 @@ async function issueTokens(
   userStore: IUserStore,
   redirectTo?: string,
   oldSid?: string
-): Promise<void> {
+): Promise<{ sessionId?: string }> {
   const payload = buildPayload(user, config);
   const refreshExpiryMs = parseExpiryMs(config.refreshTokenExpiresIn as string | undefined);
 
@@ -448,6 +490,7 @@ async function issueTokens(
   } else {
     sendTokens(req, res, tokens, config);
   }
+  return { sessionId: payload.sid };
 }
 
 export function createAuthRouter(
@@ -467,6 +510,31 @@ export function createAuthRouter(
   const localStrategy = new LocalStrategy(userStore, passwordService);
   const rl = options.rateLimiter ? [options.rateLimiter] : [];
   const allowedOrigins = buildAllowedOrigins(config, options);
+  const isResourceServer = config.resourceServer?.enabled === true;
+  const eventBus = options.eventBus;
+  const registerHandler: RouterOptions['onRegister'] | undefined = !isResourceServer
+    ? (options.onRegister ?? (typeof userStore.create === 'function'
+      ? async (data: Record<string, unknown>) => {
+        if (typeof data['email'] !== 'string' || typeof data['password'] !== 'string' || !data['email'] || !data['password']) {
+          throw new AuthError('Email and password are required', 'INVALID_INPUT', 400);
+        }
+        const hash = await passwordService.hash(data['password'], config.bcryptSaltRounds);
+        return userStore.create({ ...data, email: data['email'], password: hash });
+      }
+      : undefined))
+    : undefined;
+
+  if (!isResourceServer && !options.onRegister) {
+    if (registerHandler) {
+      process.stderr.write(
+        '[awesome-node-auth] INFO: POST /register is enabled with the default userStore.create + password hash handler.\n',
+      );
+    } else {
+      process.stderr.write(
+        '[awesome-node-auth] WARN: POST /register was not mounted because onRegister is missing and userStore.create is unavailable.\n',
+      );
+    }
+  }
 
   // ── IdP mode: JWKS endpoint ────────────────────────────────────────────────
   // Registered BEFORE auth middleware so it is always public (no token required).
@@ -507,7 +575,6 @@ export function createAuthRouter(
   // ── Resource Server mode: skip auth-flow routes ────────────────────────────
   // When enabled this instance has no local user DB — only token verification
   // routes make sense. Auth-flow routes (login / register / etc.) are skipped.
-  const isResourceServer = config.resourceServer?.enabled === true;
 
   // Dynamic CORS — only active when `options.cors.origins` is provided
   if (options.cors?.origins?.length) {
@@ -578,8 +645,18 @@ export function createAuthRouter(
       }
 
       await userStore.updateLastLogin(user.id);
-      await issueTokens(req, res, user, config, options, userStore);
+      const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+        userId: user.id,
+        sessionId,
+        data: { method: 'local' },
+      });
     } catch (err) {
+      if (err instanceof AuthError && err.statusCode === 401) {
+        publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_FAILED, req, {
+          data: { method: 'local', email: (req.body as { email?: string } | undefined)?.email },
+        });
+      }
       handleError(res, err);
     }
   });
@@ -606,10 +683,16 @@ export function createAuthRouter(
     next();
   }, async (req: Request, res: Response) => {
     try {
+      const userId = req.user?.sub;
+      const sessionId = req.user?.sid;
       if (req.user?.sub) {
         await userStore.updateRefreshToken(req.user.sub, null, null);
       }
       tokenService.clearTokenCookies(res, config);
+      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGOUT, req, {
+        userId,
+        sessionId,
+      });
       res.json({ success: true });
     } catch (err) {
       // Even if DB update fails, make sure we clear cookies on the client
@@ -646,7 +729,12 @@ export function createAuthRouter(
         return;
       }
       
-      await issueTokens(req, res, user, config, options, userStore, /* redirectTo */ undefined, payload.sid);
+      const { sessionId } = await issueTokens(req, res, user, config, options, userStore, /* redirectTo */ undefined, payload.sid);
+      publishRouterEvent(eventBus, AuthEventNames.SESSION_ROTATED, req, {
+        userId: user.id,
+        sessionId,
+        data: { previousSessionId: payload.sid },
+      });
     } catch (err) {
       handleError(res, err);
     }
@@ -710,12 +798,11 @@ export function createAuthRouter(
   });
 
   // POST /register (optional — only mounted when onRegister is provided)
-  if (options.onRegister && !isResourceServer) {
-    const onRegister = options.onRegister;
+  if (registerHandler && !isResourceServer) {
     router.post('/register', ...rl, async (req: Request, res: Response) => {
       try {
         const data = req.body as Record<string, unknown>;
-        const user = await onRegister(data, config, options);
+        const user = await registerHandler(data, config, options);
         if (config.email?.sendWelcome) {
           await config.email.sendWelcome(user.email, data);
         } else if (config.email?.mailer) {
@@ -723,6 +810,10 @@ export function createAuthRouter(
           const siteUrl = resolveSiteUrl(req, config, allowedOrigins);
           await mailer.sendWelcome(user.email, { loginUrl: `${siteUrl}/login` });
         }
+        publishRouterEvent(eventBus, AuthEventNames.USER_CREATED, req, {
+          userId: user.id,
+          data: { email: user.email, method: options.onRegister ? 'custom' : 'default' },
+        });
         res.status(201).json({ success: true, userId: user.id });
       } catch (err) {
         handleError(res, err);
@@ -849,6 +940,9 @@ export function createAuthRouter(
         return;
       }
       await totpStrategy.enable(req.user!.sub, secret, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.USER_2FA_ENABLED, req, {
+        userId: req.user!.sub,
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -870,7 +964,12 @@ export function createAuthRouter(
         res.status(401).json({ error: 'Invalid TOTP code' });
         return;
       }
-      await issueTokens(req, res, user, config, options, userStore);
+      const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+        userId: user.id,
+        sessionId,
+        data: { method: 'totp' },
+      });
     } catch (err) {
       handleError(res, err);
     }
@@ -895,6 +994,9 @@ export function createAuthRouter(
         }
       }
       await totpStrategy.disable(userId, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.USER_2FA_DISABLED, req, {
+        userId,
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -925,6 +1027,9 @@ export function createAuthRouter(
       }
       const hashed = await passwordService.hash(newPassword, config.bcryptSaltRounds);
       await userStore.updatePassword(user.id, hashed);
+      publishRouterEvent(eventBus, AuthEventNames.USER_PASSWORD_CHANGED, req, {
+        userId: user.id,
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -988,6 +1093,9 @@ export function createAuthRouter(
       }
       await userStore.updateEmailVerified(user.id, true);
       await userStore.updateEmailVerificationToken(user.id, null, null);
+      publishRouterEvent(eventBus, AuthEventNames.USER_EMAIL_VERIFIED, req, {
+        userId: user.id,
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -1064,6 +1172,10 @@ export function createAuthRouter(
         const mailer = new MailerService(config.email.mailer, config.templateStore);
         await mailer.sendEmailChanged(oldEmail, newEmail);
       }
+      publishRouterEvent(eventBus, AuthEventNames.USER_EMAIL_CHANGED, req, {
+        userId: user.id,
+        data: { oldEmail, newEmail },
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -1151,7 +1263,12 @@ export function createAuthRouter(
           res.status(401).json({ error: 'Token mismatch', code: 'TOKEN_MISMATCH' });
           return;
         }
-        await issueTokens(req, res, user, config, options, userStore);
+        const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+        publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+          userId: user.id,
+          sessionId,
+          data: { method: 'magic-link' },
+        });
         return;
       }
 
@@ -1161,7 +1278,12 @@ export function createAuthRouter(
       if (!user.isEmailVerified && userStore.updateEmailVerified) {
         await userStore.updateEmailVerified(user.id, true);
       }
-      await issueTokens(req, res, user, config, options, userStore);
+      const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+        userId: user.id,
+        sessionId,
+        data: { method: 'magic-link' },
+      });
     } catch (err) {
       handleError(res, err);
     }
@@ -1282,7 +1404,12 @@ export function createAuthRouter(
         res.status(404).json({ error: 'User not found' });
         return;
       }
-      await issueTokens(req, res, user, config, options, userStore);
+      const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+        userId: user.id,
+        sessionId,
+        data: { method: 'sms' },
+      });
     } catch (err) {
       handleError(res, err);
     }
@@ -1313,7 +1440,12 @@ export function createAuthRouter(
       return;
     }
     await userStore.updateLastLogin(user.id);
-    await issueTokens(req, res, user, authConfig, options, userStore, redirectTo || '/');
+    const { sessionId } = await issueTokens(req, res, user, authConfig, options, userStore, redirectTo || '/');
+    publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_SUCCESS, req, {
+      userId: user.id,
+      sessionId,
+      data: { provider: user.loginProvider ?? 'oauth', redirectTo },
+    });
   }
 
   // OAuth Google
@@ -1341,9 +1473,13 @@ export function createAuthRouter(
             linkedAt: new Date(),
           }).catch((e: unknown) => { console.error('[node-auth] linkAccount error (google):', e); });
         }
+        user.loginProvider = user.loginProvider ?? 'google';
         await handleOAuthLogin(req, res, user, config, redirectTo);
       } catch (err) {
         if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
+          publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
+            data: { provider: 'google', ...(err.data ?? {}) },
+          });
           const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
           if (options.pendingLinkStore && email && providerAccountId) {
@@ -1387,9 +1523,13 @@ export function createAuthRouter(
             linkedAt: new Date(),
           }).catch((e: unknown) => { console.error('[node-auth] linkAccount error (github):', e); });
         }
+        user.loginProvider = user.loginProvider ?? 'github';
         await handleOAuthLogin(req, res, user, config, redirectTo);
       } catch (err) {
         if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
+          publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
+            data: { provider: 'github', ...(err.data ?? {}) },
+          });
           const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
           if (options.pendingLinkStore && email && providerAccountId) {
@@ -1433,9 +1573,13 @@ export function createAuthRouter(
               linkedAt: new Date(),
             }).catch((e: unknown) => { console.error(`[node-auth] linkAccount error (${s.name}):`, e); });
           }
+          user.loginProvider = user.loginProvider ?? s.name;
           await handleOAuthLogin(req, res, user, config, redirectTo);
         } catch (err) {
           if (err instanceof AuthError && err.code === 'OAUTH_ACCOUNT_CONFLICT') {
+            publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
+              data: { provider: s.name, ...(err.data ?? {}) },
+            });
             const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
             const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
             if (options.pendingLinkStore && email && providerAccountId) {
@@ -1629,6 +1773,9 @@ export function createAuthRouter(
         await userStore.updateResetToken(userId, null, null);
       }
       tokenService.clearTokenCookies(res, config);
+      publishRouterEvent(eventBus, AuthEventNames.USER_DELETED, req, {
+        userId,
+      });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -1643,7 +1790,7 @@ export function createAuthRouter(
       settingsStore: options.settingsStore,
       templateStore: config.templateStore,
       authConfig: config,
-      routerOptions: options,
+      routerOptions: { ...options, onRegister: registerHandler },
       apiPrefix: resolveApiPrefix(config, options),
     }));
   }
@@ -1658,7 +1805,7 @@ export function createAuthRouter(
     router.get('/openapi.json', (_req: Request, res: Response) => {
       const spec = buildAuthOpenApiSpec(
         {
-          hasRegister: !!options.onRegister,
+          hasRegister: !!registerHandler,
           hasSessionsCleanup: !!options.sessionStore?.deleteExpiredSessions,
           hasLinkedAccounts: !!options.linkedAccountsStore,
           hasGoogleOAuth: !!options.googleStrategy,

@@ -19,6 +19,8 @@ import { AuthConfig } from '../src/models/auth-config.model';
 import { TokenService } from '../src/services/token.service';
 import { PasswordService } from '../src/services/password.service';
 import { GenericOAuthStrategy, GenericOAuthProviderConfig } from '../src/strategies/oauth/generic-oauth.strategy';
+import { AuthEventBus } from '../src/events/auth-event-bus';
+import { AuthEventNames } from '../src/events/auth-event-names';
 
 const tokenService = new TokenService();
 const passwordService = new PasswordService();
@@ -731,6 +733,37 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     expect(location).toContain(`${mobileSiteUrl}/auth/2fa`);
     expect(location).toContain('tempToken=');
     expect(location).toContain('methods=totp');
+  });
+
+  it('does not emit AUTH_OAUTH_SUCCESS before OAuth login completes when 2FA is required', async () => {
+    const oauthUser: BaseUser = {
+      id: 'd1',
+      email: 'discord@test.com',
+      isTotpEnabled: true,
+      totpSecret: 'secret',
+    };
+    class DiscordStrategy extends GenericOAuthStrategy {
+      async handleCallback(_code: string): Promise<BaseUser> { return oauthUser; }
+      async findOrCreateUser(p: { id: string; email: string }): Promise<BaseUser> {
+        return { id: p.id, email: p.email };
+      }
+    }
+    const store = makeOAuthUserStore(oauthUser);
+    const bus = new AuthEventBus();
+    const events: string[] = [];
+    bus.onEvent('*', (payload) => events.push(payload.event));
+    const app = express();
+    app.use(express.json());
+    app.use('/auth', createAuthRouter(store, mobileOAuthConfig, {
+      oauthStrategies: [new DiscordStrategy(discordCfg)],
+      eventBus: bus,
+    }));
+
+    const res = await request(app).get('/auth/oauth/discord/callback?code=abc&state=xyz');
+
+    expect(res.status).toBe(302);
+    expect(res.headers['location']).toContain(`${mobileSiteUrl}/auth/2fa`);
+    expect(events).not.toContain(AuthEventNames.AUTH_OAUTH_SUCCESS);
   });
 
   it('after OAuth 2FA redirect, mobile app can complete login using bearer-mode TOTP verify', async () => {

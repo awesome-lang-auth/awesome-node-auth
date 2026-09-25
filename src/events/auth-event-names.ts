@@ -6,6 +6,7 @@ export const AuthEventNames = {
   // ---- User ----------------------------------------------------------------
   USER_CREATED: 'identity.user.created',
   USER_DELETED: 'identity.user.deleted',
+  USER_EMAIL_CHANGED: 'identity.user.email.changed',
   USER_EMAIL_VERIFIED: 'identity.user.email.verified',
   USER_PASSWORD_CHANGED: 'identity.user.password.changed',
   USER_2FA_ENABLED: 'identity.user.2fa.enabled',

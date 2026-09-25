@@ -9,6 +9,8 @@ import { SessionInfo } from '../src/models/session.model';
 import { PasswordService } from '../src/services/password.service';
 import { TokenService } from '../src/services/token.service';
 import { TOTP, NobleCryptoPlugin, ScureBase32Plugin } from 'otplib';
+import { AuthEventBus } from '../src/events/auth-event-bus';
+import { AuthEventNames } from '../src/events/auth-event-names';
 
 const passwordService = new PasswordService();
 const tokenService = new TokenService();
@@ -133,6 +135,106 @@ describe('Auth Router Integration', () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
       const res = await request(app).post('/auth/logout').set('Cookie', `accessToken=${tokens.accessToken}`);
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('POST /auth/register', () => {
+    it('mounts the default register handler when onRegister is omitted', async () => {
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const create = vi.fn(async (data: Partial<BaseUser>) => ({
+        id: '2',
+        email: String(data.email),
+        password: data.password,
+      }));
+      store.create = create as unknown as typeof store.create;
+      const registerApp = express();
+      registerApp.use(express.json());
+      registerApp.use('/auth', createAuthRouter(store, config));
+
+      const res = await request(registerApp)
+        .post('/auth/register')
+        .send({ email: 'new@test.com', password: 'new-password' });
+
+      expect(res.status).toBe(201);
+      expect(create).toHaveBeenCalledTimes(1);
+      const created = create.mock.calls[0][0] as Partial<BaseUser>;
+      expect(created.email).toBe('new@test.com');
+      expect(created.password).not.toBe('new-password');
+      expect(await passwordService.compare('new-password', created.password as string)).toBe(true);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('default userStore.create + password hash handler'));
+      stderrSpy.mockRestore();
+    });
+  });
+
+  describe('auth event bus integration', () => {
+    it('publishes login success and failure events', async () => {
+      const bus = new AuthEventBus();
+      const events: string[] = [];
+      bus.onEvent('*', (payload) => events.push(payload.event));
+
+      const eventApp = express();
+      eventApp.use(express.json());
+      eventApp.use('/auth', createAuthRouter(store, config, { eventBus: bus }));
+
+      const ok = await request(eventApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      expect(ok.status).toBe(200);
+
+      const bad = await request(eventApp).post('/auth/login').send({ email: 'user@test.com', password: 'wrong' });
+      expect(bad.status).toBe(401);
+
+      expect(events).toContain(AuthEventNames.AUTH_LOGIN_SUCCESS);
+      expect(events).toContain(AuthEventNames.AUTH_LOGIN_FAILED);
+    });
+
+    it('publishes AUTH_LOGIN_SUCCESS for magic-link verify', async () => {
+      const bus = new AuthEventBus();
+      const events: string[] = [];
+      bus.onEvent('*', (payload) => events.push(payload.event));
+
+      const cfgWithMagic: AuthConfig = {
+        ...config,
+        email: { ...config.email, sendMagicLink: vi.fn().mockResolvedValue(undefined), siteUrl: 'http://localhost' },
+      };
+      const eventApp = express();
+      eventApp.use(express.json());
+      eventApp.use('/auth', createAuthRouter(store, cfgWithMagic, { eventBus: bus }));
+
+      const user = users.get('1')!;
+      user.magicLinkToken = 'event-magic-token';
+      user.magicLinkTokenExpiry = new Date(Date.now() + 60_000);
+
+      const res = await request(eventApp)
+        .post('/auth/magic-link/verify')
+        .send({ token: 'event-magic-token' });
+
+      expect(res.status).toBe(200);
+      expect(events).toContain(AuthEventNames.AUTH_LOGIN_SUCCESS);
+    });
+
+    it('publishes AUTH_LOGIN_SUCCESS for sms verify', async () => {
+      const bus = new AuthEventBus();
+      const events: string[] = [];
+      bus.onEvent('*', (payload) => events.push(payload.event));
+
+      const cfgWithSms: AuthConfig = {
+        ...config,
+        sms: { endpoint: 'http://test', apiKey: 'key', username: 'u', password: 'p' },
+      };
+      const eventApp = express();
+      eventApp.use(express.json());
+      eventApp.use('/auth', createAuthRouter(store, cfgWithSms, { eventBus: bus }));
+
+      const user = users.get('1')!;
+      user.phoneNumber = '+123456789';
+      user.smsCode = await passwordService.hash('123456');
+      user.smsCodeExpiry = new Date(Date.now() + 60_000);
+
+      const res = await request(eventApp)
+        .post('/auth/sms/verify')
+        .send({ userId: '1', code: '123456' });
+
+      expect(res.status).toBe(200);
+      expect(events).toContain(AuthEventNames.AUTH_LOGIN_SUCCESS);
     });
   });
 

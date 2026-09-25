@@ -19,6 +19,8 @@ import { Tenant } from '../src/models/tenant.model';
 import { AuthConfig } from '../src/models/auth-config.model';
 import { PasswordService } from '../src/services/password.service';
 import { TokenService } from '../src/services/token.service';
+import { AuthEventBus } from '../src/events/auth-event-bus';
+import { AuthEventNames } from '../src/events/auth-event-names';
 
 const passwordService = new PasswordService();
 const tokenService = new TokenService();
@@ -43,7 +45,12 @@ function createFullStore(): IUserStore {
   return {
     findByEmail: vi.fn((email: string) => Promise.resolve([...users.values()].find(u => u.email === email) ?? null)),
     findById: vi.fn((id: string) => Promise.resolve(users.get(id) ?? null)),
-    create: vi.fn(),
+    create: vi.fn((data: Partial<BaseUser>) => {
+      const id = `new-${users.size + 1}`;
+      const user: BaseUser = { id, email: String(data.email), password: data.password };
+      users.set(id, user);
+      return Promise.resolve(user);
+    }),
     updateRefreshToken: vi.fn((id, token, expiry) => {
       const u = users.get(id);
       if (u) { u.refreshToken = token; u.refreshTokenExpiry = expiry; }
@@ -273,6 +280,33 @@ describe('Change email flow', () => {
     expect(res.body.success).toBe(true);
     expect(store.updateEmail).toHaveBeenCalledWith('1', 'new@test.com');
     expect(config.email!.sendEmailChanged).toHaveBeenCalledWith('old@test.com', 'new@test.com');
+  });
+
+  it('emits USER_EMAIL_CHANGED when email change is confirmed', async () => {
+    const bus = new AuthEventBus();
+    const events: string[] = [];
+    const payloads: Array<Record<string, unknown>> = [];
+    bus.onEvent('*', (payload) => {
+      events.push(payload.event);
+      payloads.push((payload.data ?? {}) as Record<string, unknown>);
+    });
+
+    const user = users.get('1')!;
+    user.pendingEmail = 'new@test.com';
+    user.emailChangeToken = 'change-token-event';
+    user.emailChangeTokenExpiry = new Date(Date.now() + 3600_000);
+
+    const eventApp = express();
+    eventApp.use(express.json());
+    eventApp.use('/auth', createAuthRouter(store, config, { eventBus: bus }));
+
+    const res = await request(eventApp)
+      .post('/auth/change-email/confirm')
+      .send({ token: 'change-token-event' });
+
+    expect(res.status).toBe(200);
+    expect(events).toContain(AuthEventNames.USER_EMAIL_CHANGED);
+    expect(payloads).toContainEqual(expect.objectContaining({ oldEmail: 'old@test.com', newEmail: 'new@test.com' }));
   });
 
   it('rejects expired email-change token', async () => {
@@ -1015,14 +1049,16 @@ describe('POST /auth/register', () => {
     expect(onRegister).toHaveBeenCalledWith({ email: 'new@test.com', password: 'mypass' }, config, expect.objectContaining({ onRegister }));
   });
 
-  it('returns 404 when onRegister is not configured', async () => {
+  it('uses the default register handler when onRegister is not configured', async () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const res = await request(app)
       .post('/auth/register')
       .send({ email: 'new@test.com', password: 'mypass' });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.userId).toBe('new-1');
   });
 
   it('returns 500 when onRegister throws', async () => {

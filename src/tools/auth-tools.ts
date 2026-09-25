@@ -45,6 +45,12 @@ export interface AuthToolsOptions {
   };
 
   /**
+   * Optional custom SSE distributor for AuthTools.notify().
+   * When provided it is used instead of the internal SseManager broadcaster.
+   */
+  sseDistributor?: ISseDistributor;
+
+  /**
    * Semantic version string attached to all outgoing webhook payloads.
    * @default '1'
    */
@@ -166,6 +172,7 @@ export class AuthTools {
   private readonly webhookVersion: string;
   private readonly userStore?: IUserStore;
   private readonly notificationService?: NotificationService;
+  private readonly sseDistributor?: ISseDistributor;
 
   constructor(eventBus: AuthEventBus, options: AuthToolsOptions = {}) {
     this.eventBus = eventBus;
@@ -174,7 +181,14 @@ export class AuthTools {
     this.webhookSender = new WebhookSender();
     this.webhookVersion = options.webhookVersion ?? '1';
     this.sseManager = options.sse ? new SseManager(options.sseOptions) : null;
+    this.sseDistributor = options.sseDistributor;
     this.userStore = options.userStore;
+
+    if (options.sse && options.sseDistributor) {
+      process.stderr.write(
+        '[awesome-node-auth] WARN: AuthTools received both sse=true and sseDistributor; notify() will use the custom distributor.\n',
+      );
+    }
 
     if (options.emailConfig || options.smsConfig) {
       this.notificationService = new NotificationService({
@@ -293,14 +307,19 @@ export class AuthTools {
     const channels = options.channels ?? ['sse'];
 
     // ── 1. SSE ──────────────────────────────────────────────────────────────
-    if (channels.includes('sse') && this.sseManager) {
-      this.sseManager.broadcast<T>(target, {
+    if (channels.includes('sse')) {
+      const streamEvent = {
         type: options.type ?? 'notification',
         data,
         tenantId: options.tenantId,
         userId: options.userId,
         metadata: options.metadata,
-      });
+      };
+      if (this.sseDistributor) {
+        this.sseDistributor.publish(target, streamEvent).catch(() => {/* best-effort */});
+      } else if (this.sseManager) {
+        this.sseManager.broadcast<T>(target, streamEvent);
+      }
     }
 
     // ── 2. Email / SMS (only when userId is provided and userStore is set) ───

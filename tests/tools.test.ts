@@ -10,6 +10,7 @@ import { createToolsRouter } from '../src/router/tools.router';
 import type { ITelemetryStore, TelemetryEvent } from '../src/interfaces/telemetry-store.interface';
 import type { IWebhookStore, WebhookConfig } from '../src/interfaces/webhook-store.interface';
 import type { ISettingsStore, AuthSettings } from '../src/interfaces/settings-store.interface';
+import type { ISseDistributor } from '../src/interfaces/sse-distributor.interface';
 import express from 'express';
 import request from 'supertest';
 
@@ -68,6 +69,7 @@ describe('AuthEventNames', () => {
   it('contains expected user events', () => {
     expect(AuthEventNames.USER_CREATED).toBe('identity.user.created');
     expect(AuthEventNames.USER_DELETED).toBe('identity.user.deleted');
+    expect(AuthEventNames.USER_EMAIL_CHANGED).toBe('identity.user.email.changed');
     expect(AuthEventNames.USER_EMAIL_VERIFIED).toBe('identity.user.email.verified');
   });
 
@@ -248,6 +250,31 @@ describe('AuthTools', () => {
     const countBefore = written.length;
     tools.notify('user:u1', { msg: 'hello' });
     expect(written.length).toBeGreaterThan(countBefore);
+  });
+
+  it('notify() prefers a custom SSE distributor when provided', async () => {
+    const distributor: ISseDistributor = {
+      publish: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockResolvedValue(undefined),
+    };
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const tools = new AuthTools(bus, {
+      sse: true,
+      sseDistributor: distributor,
+      sseOptions: { heartbeatIntervalMs: 0 },
+    });
+
+    await tools.notify('user:u1', { msg: 'hello' }, { type: 'custom' });
+
+    expect(distributor.publish).toHaveBeenCalledWith('user:u1', {
+      type: 'custom',
+      data: { msg: 'hello' },
+      tenantId: undefined,
+      userId: undefined,
+      metadata: undefined,
+    });
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('custom distributor'));
+    stderrSpy.mockRestore();
   });
 
   it('track() triggers outgoing webhooks', async () => {
