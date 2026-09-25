@@ -180,6 +180,28 @@ describe('DX improvements', () => {
     expect(events).toEqual([]);
   });
 
+  it('promoteToAdmin and revokeAdmin reject an unknown method before any store call or event', async () => {
+    const bus = new AuthEventBus();
+    const events: string[] = [];
+    bus.onEvent('*', (payload) => events.push(payload.event));
+    const userStore = makeUserStore(adminUser);
+    const rbacStore = makeRbacStore();
+    const auth = new AuthConfigurator(config, userStore, { eventBus: bus });
+
+    for (const method of ['Both', 'none', '']) {
+      await expect(auth.revokeAdmin('user-1', { method: method as any, rbacStore }))
+        .rejects.toThrow(`revokeAdmin: unknown method ${JSON.stringify(method)}`);
+    }
+    await expect(auth.promoteToAdmin('user-1', { method: 'Flag' as any, rbacStore }))
+      .rejects.toThrow('promoteToAdmin: unknown method "Flag"');
+
+    expect(userStore.update).not.toHaveBeenCalled();
+    expect(rbacStore.removeRoleFromUser).not.toHaveBeenCalled();
+    expect(rbacStore.createRole).not.toHaveBeenCalled();
+    expect(rbacStore.addRoleToUser).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
   it('POST /users/:id/promote promotes through the admin router', async () => {
     const userStore = makeUserStore(adminUser);
     const rbacStore: IRolesPermissionsStore = {

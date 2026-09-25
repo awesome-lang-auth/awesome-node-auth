@@ -2854,7 +2854,7 @@ await auth.revokeAdmin(userId, { method: 'both', rbacStore });
 | `'flag'` | `userStore.update(userId, { isAdmin: true })` | `userStore.update(userId, { isAdmin: false })` |
 | `'both'` | — | both of the above; needs `IUserStore.update` **and** `rbacStore` |
 
-Both helpers throw when the method needs a store that is missing (`rbacStore` for `'role'`/`'both'`, `IUserStore.update` for `'flag'`/`'both'`); `revokeAdmin` checks this before changing anything, so a failed revocation leaves both the role and the flag as they were and publishes no event. `createRole('admin')` runs on every role-based promotion, so `IRolesPermissionsStore.createRole` must tolerate an existing role. With an `eventBus` on the configurator, `promoteToAdmin` publishes `ROLE_ASSIGNED` and `revokeAdmin` publishes `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
+Both helpers throw on a `method` that is not in the table, and when the method needs a store that is missing (`rbacStore` for `'role'`/`'both'`, `IUserStore.update` for `'flag'`/`'both'`); `revokeAdmin` checks this before changing anything, so a failed revocation leaves both the role and the flag as they were and publishes no event. `createRole('admin')` runs on every role-based promotion, so `IRolesPermissionsStore.createRole` must tolerate an existing role. With an `eventBus` on the configurator, `promoteToAdmin` publishes `ROLE_ASSIGNED` and `revokeAdmin` publishes `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
 
 Over HTTP, the admin router exposes the same promotion as `POST /admin/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
 

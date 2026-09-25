@@ -91,6 +91,10 @@ export class AuthConfigurator {
     options: { method?: 'flag' | 'role'; rbacStore?: IRolesPermissionsStore } = {},
   ): Promise<void> {
     const method = options.method ?? 'role';
+    // Reject an unknown method (a JavaScript caller, a config value) up front.
+    if (method !== 'flag' && method !== 'role') {
+      throw new Error(`promoteToAdmin: unknown method ${JSON.stringify(method)}`);
+    }
     if (method === 'flag') {
       const writableUserStore = this.userStore as WritableUserStore;
       if (typeof writableUserStore.update !== 'function') {
@@ -120,6 +124,12 @@ export class AuthConfigurator {
     options: { method?: 'flag' | 'role' | 'both'; rbacStore?: IRolesPermissionsStore } = {},
   ): Promise<void> {
     const method = options.method ?? 'role';
+    // Reject an unknown method (a JavaScript caller, a config value) before any
+    // check or store call: it would otherwise skip every step and still
+    // publish ROLE_REVOKED.
+    if (method !== 'flag' && method !== 'role' && method !== 'both') {
+      throw new Error(`revokeAdmin: unknown method ${JSON.stringify(method)}`);
+    }
     const clearFlag = method === 'flag' || method === 'both';
     const removeRole = method === 'role' || method === 'both';
     const writableUserStore = this.userStore as WritableUserStore;
