@@ -358,7 +358,7 @@ When you mount `auth.router()`, the following endpoints are available:
 |--------|------|-------------|
 | `POST` | `/auth/register` | Register a new user _(optional — requires `onRegister` or `defaultRegister: true` in `RouterOptions`)_ |
 | `POST` | `/auth/login` | Login with email/password |
-| `POST` | `/auth/logout` | Logout and clear cookies |
+| `POST` | `/auth/logout` | Logout: revoke the session and the stored refresh token (access token from the `Authorization: Bearer` header or the cookie, and/or `{ refreshToken }` in the body), and clear cookies |
 | `POST` | `/auth/refresh` | Refresh access token |
 | `GET` | `/auth/me` | Get current user’s rich profile (protected) |
 | `POST` | `/auth/forgot-password` | Send password reset email |
@@ -1796,6 +1796,22 @@ const res = await fetch('/auth/refresh', {
   body: JSON.stringify({ refreshToken }),
 });
 const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await res.json();
+```
+
+### Logout (bearer)
+
+`POST /auth/logout` ends the session named by the `Authorization: Bearer` access token and/or by a `refreshToken` in the JSON body (as for `/auth/refresh`): it revokes the stateful session (with a `sessionStore`) and clears the stored refresh token, so that refresh token is refused afterwards. A refresh token in the body counts only while it is the user's current one. Send both when you have them; an expired access token alone cannot identify the session.
+
+```typescript
+await fetch('/auth/logout', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: JSON.stringify({ refreshToken }),
+});
+// then drop both tokens on the client
 ```
 
 The `X-Auth-Strategy: bearer` header is respected by all token-issuing endpoints: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/2fa/verify`, `POST /auth/magic-link/verify`, and `POST /auth/sms/verify`.
@@ -3341,7 +3357,7 @@ bus.onEvent(AuthEventNames.AUTH_LOGIN_FAILED, (e) => {
 });
 ```
 
-Success events are published after the operation has completed. Router events carry `userId` (except `AUTH_LOGIN_FAILED` and `AUTH_OAUTH_CONFLICT`; `AUTH_LOGOUT` has it only when the request carried a valid `accessToken` cookie) and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
+Success events are published after the operation has completed. Router events carry `userId` (except `AUTH_LOGIN_FAILED` and `AUTH_OAUTH_CONFLICT`; `AUTH_LOGOUT` has it only when the request carried a valid access token, in the `Authorization: Bearer` header or the `accessToken` cookie, or the user's current refresh token in the body) and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
 
 **Auth router** (`createAuthRouter` / `auth.router()`):
 

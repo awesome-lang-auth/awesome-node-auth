@@ -670,19 +670,41 @@ export function createAuthRouter(
   // We don't use the standard authMiddleware here because we want to clear cookies
   // even if the token is expired or invalid.
   if (!isResourceServer) router.post('/logout', ...rl, async (req: Request, res: Response, next: NextFunction) => {
-    // Try to get the user from token, but don't block if it fails
-    const token = tokenService.extractTokenFromCookie(req, 'accessToken');
+    // Try to get the user from the access token, but don't block if it fails.
+    // Like auth.middleware(): the Authorization: Bearer header (bearer clients)
+    // first, then the accessToken cookie.
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.substring(7)
+      : tokenService.extractTokenFromCookie(req, 'accessToken');
     if (token) {
       try {
         const payload = tokenService.verifyAccessToken(token, config);
         req.user = payload;
-        
+
         // Revoke stateful session
         if (options.sessionStore && payload.sid) {
           await options.sessionStore.revokeSession(payload.sid).catch(() => {});
         }
       } catch (err) {
         // Token dead, but we proceed to clear it
+      }
+    }
+    // A bearer client may send its refresh token in the body, as for /refresh.
+    // It ends the session only while it is the user's current refresh token.
+    const bodyRefreshToken = (req.body as { refreshToken?: unknown } | undefined)?.refreshToken;
+    if (typeof bodyRefreshToken === 'string' && bodyRefreshToken) {
+      try {
+        const payload = tokenService.verifyRefreshToken(bodyRefreshToken, config);
+        const user = await userStore.findById(payload.sub);
+        if (user && user.refreshToken === bodyRefreshToken) {
+          if (options.sessionStore && payload.sid) {
+            await options.sessionStore.revokeSession(payload.sid).catch(() => {});
+          }
+          if (!req.user) req.user = payload;
+        }
+      } catch {
+        // Invalid, expired or already rotated: nothing to revoke
       }
     }
     next();
