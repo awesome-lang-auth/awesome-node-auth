@@ -40,6 +40,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - OAuth logins set `loginProvider` to the provider name when the user record has none, so the `loginProvider` token claim is the provider instead of `'local'` (OAuth logins completed without a 2FA step).
 - The auth and admin routers write startup `INFO`/`WARN` lines to `stderr` (built-in register handler status when `defaultRegister` is set, enabled admin tabs); `AuthTools` warns when both `sse: true` and `sseDistributor` are set.
 - The admin panel sign-in form points end users to `/auth/ui/login`.
+- A `purpose` claim returned by `buildTokenPayload` is dropped from the access and refresh tokens: the library reserves it to mark tokens that are not sessions (`'2fa'`, `'admin'`).
 - `package-lock.json` refreshed within the existing dependency ranges.
 
 ### Deprecated
@@ -50,13 +51,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes.
 - `POST /link-request` exempts requests with an `Authorization: Bearer` credential from its CSRF check, like `auth.middleware()`, and then identifies the user from the bearer token only. Cookie-authenticated and anonymous conflict-linking requests are still checked. (#4)
 - The auth router's CORS layer allows the `X-Auth-Strategy` request header, so browser apps on a listed origin can use bearer mode. (#5)
+- The Next.js demo's edge middleware and the edge-middleware snippet in `examples/nextjs-integration.example.ts` check the token expiry and refuse tokens that are not sessions (`purpose` claim), not only the signature.
 
 ### Security
 - `POST /register`: `config.email.sendWelcome(to, data)` no longer receives the plaintext `password` in `data`, with a custom `onRegister` as well as with the built-in handler.
 - The built-in register handler is opt-in (`defaultRegister`) and persists an allow-list of fields only.
-- The 2FA step-up token (`tempToken`) is no longer accepted as a session token: `auth.middleware()`, the admin router and every route behind them refuse it, and the 2FA completion endpoints accept only that token. The `tempToken` of a `2FA_SETUP_REQUIRED` answer no longer opens the enrolment routes. Upgrading is recommended.
-- The admin console token issued by `POST <admin>/login` is accepted by the admin router only, not as an application session; the admin guard honours `isRoot` only on that token. The admin sign-in still checks the password only (no second factor): set `loginPath` to the application login to require 2FA for operators.
-- The session-based admin guard answers `401` to every unauthenticated request for the admin REST API, whatever its `Accept` header; only the HTML panel redirects to `loginPath` or shows its sign-in form.
+- The 2FA step-up token (`tempToken`) is no longer accepted as a session token: `auth.middleware()`, the admin router and every route behind them refuse it, and the 2FA completion endpoints accept only that token. The `tempToken` of a `2FA_SETUP_REQUIRED` answer no longer opens the enrolment routes. A 2FA challenge started before the upgrade must be restarted. Upgrading is recommended.
+- The admin console token issued by `POST <admin>/login` is accepted by the admin router only, not as an application session; the admin guard honours `isRoot` only on that token, and a `purpose` claim returned by `buildTokenPayload` is dropped from session tokens, so they cannot pass for it. The admin sign-in still checks the password only (no second factor): set `loginPath` to the application login to send operators through its 2FA flow, and restrict `POST <admin>/login`, which stays mounted, at the proxy.
+- A root or bootstrap admin console session (`rootUser` / `adminSecret` sign-in) issued by 1.9.0 is refused after the upgrade and needs one new sign-in; the panel shows its sign-in form, or redirects to `loginPath`. Other admin console sessions stay valid until they expire.
+- The session-based admin guard answers `401` to every unauthenticated request for the admin REST API, whatever its `Accept` header; only the HTML panel redirects to `loginPath` or shows its sign-in form, also when a validly signed token names no stored user.
 - `createAdminRouter()` throws a configuration error when `adminSecret` is present but empty and no `accessPolicy` is set, instead of mounting unprotected routes.
 - `POST /logout` also ends the session of bearer clients: it reads the access token from the `Authorization: Bearer` header and accepts the current refresh token in the body, then revokes the session and the stored refresh token. (#3)
 
