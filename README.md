@@ -79,7 +79,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Multi-tenancy** | `ITenantStore` for isolated tenant apps |
 | **Admin panel** | Full-featured admin UI: user management, sessions, roles, tenants, metadata, API keys, webhooks |
 | **Built-in UI** | Zero-dependency HTML/CSS/JS login UI served at `<apiPrefix>/ui/` · **headless mode** for SPAs |
-| **Client libraries** | `ng-awesome-node-auth` (Angular) · `awesome-node-auth-flutter` (Flutter/Dart) |
+| **Client libraries** | Angular · Flutter · React · served `auth.js` — see [Ecosystem](#ecosystem) |
 | **Event-driven** | `AuthEventBus` · SSE push · inbound/outbound webhooks · telemetry |
 | **API keys** | M2M bcrypt-hashed keys with scopes, expiry, IP allowlist and audit log |
 | **OpenAPI / Swagger** | Auto-generated specs for auth, admin and tools routers |
@@ -186,6 +186,32 @@ Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router an
 - `/auth/admin/` — admin panel for operators (its sign-in form posts to `/auth/admin/login`)
 
 They are intentionally different flows. If you mount the admin UI for operators, keep linking end users to `/auth/ui/login`.
+
+---
+
+## Ecosystem
+
+`awesome-node-auth` is the reference server of a family of libraries that port its HTTP API to other runtimes, plus client libraries for that API.
+
+**Servers**
+
+| Runtime | Repository | Status |
+|---|---|---|
+| Node.js | [`awesome-node-auth`](https://github.com/nik2208/awesome-node-auth) (this repo) | npm `awesome-node-auth` |
+| Go | [`awesome-go-auth`](https://github.com/nik2208/awesome-go-auth) | Go module, 0.11.x · 1.0 in progress |
+| AWS Lambda | [`awesome-lambda-auth`](https://github.com/nik2208/awesome-lambda-auth) | Preview |
+| Python | [`awesome-python-auth`](https://github.com/awesome-lang-auth/awesome-python-auth) | PyPI `awesome-python-auth` 1.1.0 |
+| Rust | [`awesome-rust-auth`](https://github.com/awesome-lang-auth/awesome-rust-auth) | Git only (not on crates.io) |
+| Dart | [`awesome-dart-auth`](https://github.com/awesome-lang-auth/awesome-dart-auth) | Git only (not on pub.dev) |
+
+**Clients**
+
+| Client | Package | Status |
+|---|---|---|
+| Angular | [`ng-awesome-node-auth`](https://github.com/nik2208/ng-awesome-node-auth) | npm · to be renamed `@awesome-lang-auth/angular` |
+| Flutter | [`awesome_node_auth_flutter`](https://github.com/nik2208/awesome-node-auth-flutter) | pub.dev · to be renamed `awesome_flutter_auth` |
+| React | [`@awesome-lang-auth/react`](https://github.com/awesome-lang-auth/awesome-react-auth) | npm 0.1.0 |
+| Browser | `auth.js` | Served by this library at `<apiPrefix>/ui/auth.js` when `ui.enabled` is set — see [Including `auth.js`](./README.detailed.md#including-authjs) |
 
 ---
 
