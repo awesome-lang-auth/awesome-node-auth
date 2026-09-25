@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
-## [Unreleased]
+## [1.10.0] — 2026-09-25
 
 ### Added
 
@@ -47,7 +47,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - `POST <admin>/users/:id/promote` (without `/api`) — alias of `POST <admin>/api/users/:id/promote`, with the same rate limiter, guard, JSON-body requirement and answers. Use the `/api` path.
 
 ### Removed
-- Documentation of the retired MCP server.
+- Documentation of the retired MCP server, and its npm keywords (`mcp`, `model-context-protocol`, `cursor-mcp`, `vscode-mcp`, `antigravity-mcp`).
+- The `sync:public` npm script: development now happens in this repository.
 
 ### Fixed
 - `session.checkOn: 'allcalls'` now applies to the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...): the router passes its `sessionStore` to its access-token middleware, so a revoked session gets `401 SESSION_REVOKED` on the next call, and the session's last-active time is updated there.
