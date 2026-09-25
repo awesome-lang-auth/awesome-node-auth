@@ -162,7 +162,7 @@ app.use('/auth', auth.router({
   pendingLinkStore,    // IPendingLinkStore    — OAuth account-linking conflicts (with linkedAccountsStore)
 }));
 
-app.get('/protected', auth.middleware(), handler); // picks up the sessionStore passed to router()
+app.get('/protected', auth.middleware(), handler); // uses the sessionStore passed to router() above (call router() first)
 ```
 
 With `buildAllRouters()`, pass the same stores as `auth: { … }`; the admin panel takes its own in `admin: { … }` (see [Admin UI](#admin-ui)).
