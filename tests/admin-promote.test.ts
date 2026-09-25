@@ -76,6 +76,25 @@ describe.each([
     expect((await userStore.findById(targetId))?.isAdmin).toBe(true);
   });
 
+  it('answers 400 to an unknown method and assigns nothing', async () => {
+    const promote = () => request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`);
+    for (const method of ['Flag', 'ROLE', 'both', 'xyz', '', 123, true, ['flag'], { flag: true }]) {
+      const res = await promote().send({ method });
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'method must be "flag" or "role"' });
+    }
+    expect(rbacStore.createRole).not.toHaveBeenCalled();
+    expect(rbacStore.addRoleToUser).not.toHaveBeenCalled();
+    expect((await userStore.findById(targetId))?.isAdmin).toBeUndefined();
+  });
+
+  it('treats a null method as the default (role)', async () => {
+    const res = await request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({ method: null });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, method: 'role' });
+    expect(rbacStore.addRoleToUser).toHaveBeenCalledWith(targetId, 'admin');
+  });
+
   it('answers 401 without a session, after the rate limiter', async () => {
     const res = await request(app).post(promotePath(targetId)).send({});
     expect(res.status).toBe(401);

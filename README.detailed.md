@@ -2942,7 +2942,8 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 
 > **`POST /admin/api/users/:id/promote`**: through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`. The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
-> - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
+> - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented;
+> - any other `method` (another string, a number, an array, ...) — `400 { "error": "method must be \"flag\" or \"role\"" }`, and nothing is assigned. An absent or `null` `method` is the default, `'role'`.
 >
 > Success: `200 { "success": true, "method": "role" }` (or `"flag"`), plus a `ROLE_ASSIGNED` event when `eventBus` is set. The role-assignment endpoints publish events too: `POST /admin/api/users/:id/roles` → `ROLE_ASSIGNED`, `DELETE /admin/api/users/:id/roles/:role` → `ROLE_REVOKED`.
 
