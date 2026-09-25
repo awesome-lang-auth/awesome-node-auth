@@ -1466,7 +1466,7 @@ await AwesomeNodeAuth.guardPage();          // auto-redirect if not logged in
 const user = AwesomeNodeAuth.getUser();     // user from the last checkSession
 ```
 
-> **Note:** Angular has a dedicated library (`awesome-node-auth-angular`) with Guards, Interceptors, and a service — use that instead of `auth.js` for Angular projects.
+> **Note:** Angular has a dedicated library (`ng-awesome-node-auth`) with Guards, Interceptors, and a service — use that instead of `auth.js` for Angular projects.
 
 ### Mounting the UI router
 
