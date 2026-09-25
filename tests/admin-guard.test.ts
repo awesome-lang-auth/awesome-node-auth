@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { createAdminRouter } from '../src/router/admin.router';
 import { InMemoryUserStore } from '../examples/in-memory-user-store';
 
@@ -79,6 +80,39 @@ describe('admin guard: unauthenticated browser requests', () => {
     const res = await request(app).get('/admin/api/users').set('Accept', 'application/json');
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Unauthorized' });
+  });
+
+  it('a signed session the guard cannot resolve gets the sign-in form on the panel and 401 on the API', async () => {
+    // A root/bootstrap console token issued before the `purpose` marking: its
+    // isRoot is no longer honoured and `root` is not a stored user.  The same
+    // applies to a token without a subject or whose user was deleted.
+    const legacyRoot = jwt.sign({ sub: 'root', email: 'root@example.com', isRoot: true }, jwtSecret, { expiresIn: '24h' });
+    const noSubject = jwt.sign({ email: 'someone@example.com' }, jwtSecret, { expiresIn: '24h' });
+    for (const token of [legacyRoot, noSubject]) {
+      const cookie = `accessToken=${token}`;
+
+      const panel = await request(buildApp(userStore)).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
+      expect(panel.status).toBe(200);
+      expect(panel.text).toContain('id="login"');
+
+      const redirected = await request(buildApp(userStore, '/login')).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
+      expect(redirected.status).toBe(302);
+      expect(redirected.headers['location']).toBe('/login?redirect=%2Fadmin%2F');
+
+      for (const accept of ['text/html', 'application/json']) {
+        const api = await request(buildApp(userStore, '/login')).get('/admin/api/ping').set('Cookie', cookie).set('Accept', accept);
+        expect(api.status, accept).toBe(401);
+        expect(api.body, accept).toEqual({ error: 'Unauthorized' });
+      }
+    }
+  });
+
+  it('a resolved user whom the policy refuses still gets 403 on the panel', async () => {
+    const user = await userStore.create({ email: 'plain@example.com' });
+    const token = jwt.sign({ sub: user.id, email: user.email }, jwtSecret, { expiresIn: '15m' });
+    const panel = await request(buildApp(userStore)).get('/admin/').set('Cookie', `accessToken=${token}`).set('Accept', 'text/html');
+    expect(panel.status).toBe(403);
+    expect(panel.body).toEqual({ error: 'Forbidden' });
   });
 });
 

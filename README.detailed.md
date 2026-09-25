@@ -2892,7 +2892,7 @@ Over HTTP, the admin router exposes the same promotion as `POST /admin/api/users
 ### Admin REST API
 
 Most admin API endpoints require an active session where the user satisfies the `accessPolicy`.
-Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `Accept` header. Only the HTML panel (`GET /admin/`) treats an unauthenticated browser differently: it redirects to `loginPath` when one is set, and otherwise shows its own sign-in form.
+Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `Accept` header. Only the HTML panel (`GET /admin/`) treats an unauthenticated browser differently: it redirects to `loginPath` when one is set, and otherwise shows its own sign-in form. A validly signed token that names no stored user (no `sub`, a deleted user, or a root or bootstrap console session issued by 1.9.0) is treated as unauthenticated.
 
 | Method | Path | Description |
 |--------|------|-------------|

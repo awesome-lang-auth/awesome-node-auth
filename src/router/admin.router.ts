@@ -320,7 +320,9 @@ function applyHostCookieRequirements(cookieName: string, opts: Record<string, un
 /**
  * JWT-based guard that enforces `AdminAccessPolicy`.
  *
- * A request without a valid session gets `401`.  The one exception is the
+ * A request without a valid session gets `401`; so does a validly signed
+ * token that names no stored user (no `sub`, or an unknown or deleted user).
+ * The one exception is the
  * guard built with `loginFormFallback` for the HTML panel route: there an
  * unauthenticated browser request (`Accept: text/html`) is redirected to
  * `loginPath` when it is set, or, for a `GET`, let through with the
@@ -381,7 +383,9 @@ function buildPolicyGuard(
     }
 
     // ── 2. Unauthenticated → 401, or (panel route only) redirect / sign-in form
-    if (!payload) {
+    // Also used when a validly signed token names no usable user (no `sub`,
+    // unknown or deleted user), so the panel still offers a way to sign in.
+    const unauthenticated = (): void => {
       const acceptsHtml = req.headers.accept?.includes('text/html');
       if (acceptsHtml && loginFormFallback) {
         // 1. External redirect if configured
@@ -399,19 +403,19 @@ function buildPolicyGuard(
           next();
           return;
         }
-
-        // For non-GET requests (e.g. API) that aren't authenticated
-        res.status(401).json({ error: 'Unauthorized' });
-      } else {
-        res.status(401).json({ error: 'Unauthorized' });
       }
+      res.status(401).json({ error: 'Unauthorized' });
+    };
+
+    if (!payload) {
+      unauthenticated();
       return;
     }
 
     // ── 3. Load the full user record ───────────────────────────────────────
     const userId = payload['sub'] as string | undefined;
     if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
+      unauthenticated();
       return;
     }
 
@@ -439,7 +443,7 @@ function buildPolicyGuard(
     }
 
     if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
+      unauthenticated();
       return;
     }
 
