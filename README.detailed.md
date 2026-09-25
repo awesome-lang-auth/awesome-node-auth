@@ -268,7 +268,7 @@ app.use(requestLogger);
 fastify.addHook('preHandler', fastifyAdapter(requestLogger));
 ```
 
-See `wiki/docs/frameworks/framework-agnostic.md` and `examples/fastify-integration.example.ts`
+See the *Framework-agnostic* guide on the documentation site and `examples/fastify-integration.example.ts`
 for full usage examples.
 
 ---
@@ -495,8 +495,8 @@ const config: AuthConfig = {
   },
 
   // Session Strategy (v1.5.0) — see “Session Management” section
-  sessionStrategy: {
-    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'none')
+  session: {
+    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'refresh')
   },
 
   // Built-in UI configuration
@@ -1466,7 +1466,7 @@ await AwesomeNodeAuth.guardPage();          // auto-redirect if not logged in
 const user = AwesomeNodeAuth.getUser();     // user from the last checkSession
 ```
 
-> **Note:** Angular has a dedicated library (`awesome-node-auth-angular`) with Guards, Interceptors, and a service — use that instead of `auth.js` for Angular projects.
+> **Note:** Angular has a dedicated library (`ng-awesome-node-auth`) with Guards, Interceptors, and a service — use that instead of `auth.js` for Angular projects.
 
 ### Mounting the UI router
 
@@ -2921,7 +2921,7 @@ Unauthenticated requests will receive a 401 or be redirected.
 >
 > Success: `200 { "success": true, "method": "role" }` (or `"flag"`), plus a `ROLE_ASSIGNED` event when `eventBus` is set. The role-assignment endpoints publish events too: `POST /admin/api/users/:id/roles` → `ROLE_ASSIGNED`, `DELETE /admin/api/users/:id/roles/:role` → `ROLE_REVOKED`.
 
-> **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. Unauthenticated browsers will be automatically redirected to the main app login page (`/auth/ui/login?redirect=/admin`). For further security in production, mount the admin router behind a VPN or IP allow-list.
+> **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. When an unauthenticated browser opens the panel (`GET <apiPrefix>/admin/`), it is redirected to `${loginPath}?redirect=<URL-encoded admin path>` if `loginPath` is set; otherwise the panel shows its own sign-in form. For further security in production, mount the admin router behind a VPN or IP allow-list.
 
 ## RouterOptions
 
@@ -3106,7 +3106,7 @@ buildTokenPayload: async (user) => ({
 
 ## Session Management (v1.5.0)
 
-`ISessionStore` enables **Stateful Sessions**. While JWTs are stateless by nature, `node-auth` supports a hybrid approach where tokens are linked to a server-side session. This allows for **instant revocation** (e.g., on logout or via an admin panel) without waiting for token expiry.
+`ISessionStore` enables **Stateful Sessions**. While JWTs are stateless by nature, `awesome-node-auth` supports a hybrid approach where tokens are linked to a server-side session. With `checkOn: 'allcalls'` this allows for **instant revocation** (e.g., on logout or via an admin panel) without waiting for token expiry; with the default `'refresh'`, a revoked session can no longer obtain new tokens.
 
 ### Validation Modes (`checkOn`)
 
@@ -3151,18 +3151,25 @@ export class MySessionStore implements ISessionStore {
 
 ### Hybrid Caching (L1/L2)
 
-For `checkOn: 'allcalls'`, it is highly recommended to use a caching layer to avoid database bottlenecks:
+For `checkOn: 'allcalls'`, it is highly recommended to put a caching layer in front of your session store to avoid database bottlenecks. The library does not ship caching stores: any object that implements `ISessionStore` works, so you can layer your own.
 
-- **L1 (In-Process)**: Use `L1CachedSessionStore` decorator for ultra-fast local lookups (5-10s TTL).
-- **L2 (Distributed)**: Use `RedisSessionStore` for instant revocation across a cluster.
+- **L1 (in-process)**: a decorator around your store that caches `getSession` results for a few seconds (5–10 s TTL) and forwards every other call. The auth middleware also calls `updateSessionLastActive` on every request, so the decorator can batch or throttle it. An L1 cache delays a revocation by up to its TTL.
+- **L2 (distributed)**: a Redis-backed `ISessionStore`, so a revocation is visible to every instance of a cluster.
+
+The session store is a router and middleware option; the third `AuthConfigurator` argument only accepts `{ eventBus }`:
 
 ```typescript
-import { RedisSessionStore, L1CachedSessionStore } from 'awesome-node-auth';
+// MyRedisSessionStore and MyL1CachedSessionStore are your own ISessionStore implementations.
+const redisStore = new MyRedisSessionStore(new Redis());
+const sessionStore = new MyL1CachedSessionStore(redisStore, { ttlMs: 5000 });
 
-const redisStore = new RedisSessionStore(new Redis());
-const sessionStore = new L1CachedSessionStore(redisStore, { ttlMs: 5000 });
+const auth = new AuthConfigurator(
+  { ...config, session: { checkOn: 'allcalls' } },
+  userStore,
+);
 
-const auth = new AuthConfigurator(config, userStore, { sessionStore });
+app.use('/auth', auth.router({ sessionStore }));                // creates sessions at sign-in; session list, refresh check, cleanup
+app.get('/api/data', auth.middleware({ sessionStore }), handler); // session checked on every request
 ```
 
 ## Multi-Tenancy
@@ -4014,54 +4021,6 @@ The table below maps SuperTokens recipes to awesome-node-auth equivalents so you
 | API Key / M2M auth | `createApiKeyMiddleware()` + `ApiKeyService` + `IApiKeyStore` | Hashed keys, IP allowlist, scopes, expiry, revocation, audit log |
 
 > **Roadmap ideas:** SCIM provisioning, passkey (WebAuthn) support.
-
-## GitHub Sponsorship Webhook (MCP Server)
-
-The MCP HTTP server can automatically assign a **pro plan** to users who sponsor the project on GitHub, and revoke it when the sponsorship is cancelled.
-
-### How it works
-
-1. A GitHub sponsorship event (created, cancelled, tier changed, etc.) is POSTed to a configurable endpoint on the MCP server.
-2. The server verifies the request using the `X-Hub-Signature-256` HMAC header and your `GITHUB_WEBHOOK_SECRET`.
-3. The matched internal user (looked up by GitHub OAuth provider ID or email) has the configured plan (`GITHUB_SPONSOR_PLAN_ID`, default `"pro"`) assigned or revoked automatically.
-4. If the sponsor has not yet registered, a **pending assignment** is stored and applied the next time a matching user is created.
-
-### Configuration
-
-Set the following environment variables in the MCP server `.env`:
-
-```env
-# Shared secret — configure the same value in GitHub → Settings → Webhooks
-GITHUB_WEBHOOK_SECRET=your-random-secret-here
-
-# Plan ID to assign to sponsors (must match a plan in your platform_plans collection)
-GITHUB_SPONSOR_PLAN_ID=pro
-
-# Endpoint where GitHub will POST sponsorship events (configurable)
-SPONSORSHIP_WEBHOOK_PATH=/webhooks/github/notify_sponsorship
-```
-
-### GitHub Webhook setup
-
-1. Go to **GitHub → Your profile → Sponsorships → Settings → Webhooks** (or your organization’s sponsorship settings).
-2. Add a new webhook:
-   - **Payload URL:** `https://<your-mcp-server-domain>/webhooks/github/notify_sponsorship`
-   - **Content type:** `application/json`
-   - **Secret:** the value of `GITHUB_WEBHOOK_SECRET`
-   - **Events:** select **Sponsorships**
-
-### Supported actions
-
-| Action | Effect |
-|--------|--------|
-| `created` | Assign pro plan to the sponsor |
-| `tier_changed` | Re-assign pro plan (tier upgrade/downgrade) |
-| `cancelled` | Revoke pro plan |
-| `pending_cancellation` | No change (grace period) |
-| `pending_tier_change` | No change |
-| `edited` | No change |
-
-See the [GitHub sponsorship webhook documentation](https://docs.github.com/en/webhooks/webhook-events-and-payloads#sponsorship) for full payload details.
 
 ## License
 
