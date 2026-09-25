@@ -140,4 +140,10 @@ export interface IUserStore<U extends BaseUser = BaseUser> {
    * Required to support the POST /auth/add-phone endpoint.
    */
   updatePhoneNumber?(userId: string, phoneNumber: string | null): Promise<void>;
+
+  /**
+   * Apply a partial update to the user record.
+   * Optional helper used by admin bootstrap utilities such as promote/revoke.
+   */
+  update?(userId: string, patch: Partial<U>): Promise<void>;
 }

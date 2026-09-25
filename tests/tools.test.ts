@@ -10,6 +10,7 @@ import { createToolsRouter } from '../src/router/tools.router';
 import type { ITelemetryStore, TelemetryEvent } from '../src/interfaces/telemetry-store.interface';
 import type { IWebhookStore, WebhookConfig } from '../src/interfaces/webhook-store.interface';
 import type { ISettingsStore, AuthSettings } from '../src/interfaces/settings-store.interface';
+import type { ISseDistributor } from '../src/interfaces/sse-distributor.interface';
 import express from 'express';
 import request from 'supertest';
 
@@ -68,6 +69,7 @@ describe('AuthEventNames', () => {
   it('contains expected user events', () => {
     expect(AuthEventNames.USER_CREATED).toBe('identity.user.created');
     expect(AuthEventNames.USER_DELETED).toBe('identity.user.deleted');
+    expect(AuthEventNames.USER_EMAIL_CHANGED).toBe('identity.user.email.changed');
     expect(AuthEventNames.USER_EMAIL_VERIFIED).toBe('identity.user.email.verified');
   });
 
@@ -248,6 +250,73 @@ describe('AuthTools', () => {
     const countBefore = written.length;
     tools.notify('user:u1', { msg: 'hello' });
     expect(written.length).toBeGreaterThan(countBefore);
+  });
+
+  it('notify() prefers a custom SSE distributor when provided', async () => {
+    const distributor: ISseDistributor = {
+      publish: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockResolvedValue(undefined),
+    };
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const tools = new AuthTools(bus, {
+      sse: true,
+      sseDistributor: distributor,
+      sseOptions: { heartbeatIntervalMs: 0 },
+    });
+
+    await tools.notify('user:u1', { msg: 'hello' }, { type: 'custom' });
+
+    expect(distributor.publish).toHaveBeenCalledWith('user:u1', {
+      id: expect.any(String),
+      timestamp: expect.any(String),
+      topic: 'user:u1',
+      type: 'custom',
+      data: { msg: 'hello' },
+      tenantId: undefined,
+      userId: undefined,
+      metadata: undefined,
+    });
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('custom distributor'));
+    stderrSpy.mockRestore();
+  });
+
+  it('notify() through sseDistributor reaches SseManager connections fed by the same distributor (loopback)', async () => {
+    // A loopback distributor: publish() hands the event to every subscriber,
+    // like a Redis Pub/Sub round trip. The SseManager subscribes to it
+    // through sseOptions.distributor.
+    const subscribers: Array<(topic: string, event: unknown) => void> = [];
+    const loopback: ISseDistributor = {
+      publish: async (topic, event) => { subscribers.forEach((cb) => cb(topic, event)); },
+      subscribe: async (cb) => { subscribers.push(cb); },
+    };
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const tools = new AuthTools(bus, {
+      sse: true,
+      sseOptions: { distributor: loopback, heartbeatIntervalMs: 0 },
+      sseDistributor: loopback,
+    });
+    stderrSpy.mockRestore();
+
+    const written: string[] = [];
+    const fakeRes = {
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: (chunk: string) => { written.push(chunk); return true; },
+      end: vi.fn(),
+      on: vi.fn(),
+    } as unknown as import('express').Response;
+    tools.sseManager!.connect(fakeRes, ['user:u1']);
+    const afterConnect = written.length;
+
+    await tools.notify('user:u1', { hello: 1 });
+    await tools.notify('user:u1', { hello: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Each event is written as three chunks (id, event, data); both events arrive.
+    expect(written.length - afterConnect).toBe(6);
+    const output = written.join('');
+    expect(output).toContain('"rawData":{"hello":1}');
+    expect(output).toContain('"rawData":{"hello":2}');
   });
 
   it('track() triggers outgoing webhooks', async () => {

@@ -18,6 +18,17 @@ import { ApiKeyService } from '../services/api-key.service';
 import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
+import { AuthEventBus } from '../events/auth-event-bus';
+import { AuthEventNames } from '../events/auth-event-names';
+import { publishRequestEvent as publishAdminEvent } from './router-events';
+
+/*
+ * Admin login lives here (typically /auth/admin/login when mounted via
+ * AuthConfigurator.buildAllRouters). End-user login lives in ui.router.ts at
+ * /auth/ui/login. Keep these two audiences distinct in code and docs.
+ */
+
+export type AuthorizedAdminUser = BaseUser & { roles: string[] };
 
 /**
  * Policy that controls who may access the Admin UI and REST API.
@@ -39,13 +50,16 @@ export type AdminAccessPolicy =
   | 'first-user'
   | 'is-admin-flag'
   | 'open'
-  | ((user: BaseUser, rbacStore?: IRolesPermissionsStore) => boolean | Promise<boolean>);
+  | ((user: AuthorizedAdminUser, rbacStore?: IRolesPermissionsStore) => boolean | Promise<boolean>);
 
 export interface AdminOptions {
   /**
    * Secret token required to access all admin endpoints.
    * Pass as a Bearer token: `Authorization: Bearer <adminSecret>`
    * The HTML UI presents a login form that stores the token in sessionStorage.
+   *
+   * Must be non-empty: without `accessPolicy`, an empty string counts as no
+   * secret, and the admin routes are mounted unprotected (with a stderr WARNING).
    *
    * @deprecated Use `accessPolicy` + `jwtSecret` instead (v1.8.0+).
    *   `adminSecret` will be removed in a future major version.
@@ -150,6 +164,12 @@ export interface AdminOptions {
   uploadBaseUrl?: string;
 
   /**
+   * Optional auth event bus. When provided, admin-side auth and RBAC events are
+   * published automatically.
+   */
+  eventBus?: AuthEventBus;
+
+  /**
    * The base path where the main auth router is mounted.
    * Used to automatically compute uploadBaseUrl if not provided.
    * @default '/auth'
@@ -183,7 +203,49 @@ export interface AdminOptions {
    * @since 1.8.0
    */
   loginPath?: string;
+
+  /**
+   * Suppress startup logs from the admin router.
+   */
+  silent?: boolean;
+
+  /**
+   * Optional rate limiter middleware applied to sensitive admin mutations.
+   */
+  rateLimiter?: RequestHandler;
 }
+
+type AdminWritableUserStore = IUserStore & {
+  update?: (userId: string, patch: Partial<BaseUser>) => Promise<void>;
+};
+
+/**
+ * Id of the admin the `accessPolicy` guard authorized for this request (the
+ * actor of a privilege change).  Only the policy guard sets it, in
+ * `res.locals.adminActorId`; `req.user` is not read, because under
+ * `adminSecret` or `'open'` it can only come from an upstream middleware.
+ */
+function adminActorId(res: Response): string | undefined {
+  const actorId: unknown = res.locals['adminActorId'];
+  return typeof actorId === 'string' ? actorId : undefined;
+}
+
+/**
+ * Refuse a request whose body is not `application/json` with `415`.
+ *
+ * For admin mutations that need no body field to grant a privilege (such as
+ * `POST /users/:id/promote`): an HTML form or a `text/plain` POST is a CORS
+ * "simple" request that a browser sends cross-site without a preflight, an
+ * `application/json` one is not.  Every route that grants admin access this
+ * way must use this check.
+ */
+const requireJsonBody: RequestHandler = (req, res, next) => {
+  if (!req.is('application/json')) {
+    res.status(415).json({ error: 'Content-Type must be application/json' });
+    return;
+  }
+  next();
+};
 
 /** Legacy guard — still used when `adminSecret` is provided. */
 function adminAuth(secret: string): RequestHandler {
@@ -346,7 +408,9 @@ function buildPolicyGuard(
         id: userId,
         email: (payload['email'] as string) || 'root@admin',
         isAdmin: true,
-      } as BaseUser;
+        roles: ['admin'],
+      } as AuthorizedAdminUser;
+      res.locals['adminActorId'] = userId;
       next();
       return;
     }
@@ -363,22 +427,25 @@ function buildPolicyGuard(
       return;
     }
 
+    const roles = rbacStore ? await rbacStore.getRolesForUser(user.id).catch(() => []) : [];
+    const authorizedUser: AuthorizedAdminUser = { ...user, roles };
+
     // ── 4. Evaluate the policy ─────────────────────────────────────────────
     let granted = false;
     try {
       if (policy === 'is-admin-flag') {
-        granted = user.isAdmin === true;
+        granted = authorizedUser.isAdmin === true;
       } else if (policy === 'first-user') {
         if (typeof (userStore as unknown as { listUsers?: unknown }).listUsers === 'function') {
           const firstPage = await (userStore as IUserStore & { listUsers(limit: number, offset: number): Promise<BaseUser[]> }).listUsers(1, 0);
-          granted = firstPage.length > 0 && firstPage[0].id === user.id;
+          granted = firstPage.length > 0 && firstPage[0].id === authorizedUser.id;
         } else {
           // If listUsers is not implemented, fall back to denying access with a clear error
           res.status(500).json({ error: 'accessPolicy: first-user requires IUserStore.listUsers to be implemented' });
           return;
         }
       } else if (typeof policy === 'function') {
-        granted = await policy(user, rbacStore);
+        granted = await policy(authorizedUser, rbacStore);
       }
     } catch {
       granted = false;
@@ -391,7 +458,8 @@ function buildPolicyGuard(
 
     // Store user on request for downstream handlers
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).user = user;
+    (req as any).user = authorizedUser;
+    res.locals['adminActorId'] = authorizedUser.id;
     next();
   };
 }
@@ -462,6 +530,7 @@ function buildAdminHtml(baseUrl: string, features: {
       <input type="password" id="secret-input" placeholder="${features.sessionBased ? 'Password' : 'Admin secret'}" ${features.sessionBased ? '' : 'autofocus'}>
       <button class="btn btn-primary" onclick="doLogin()">Sign in</button>
     </div>
+    <p style="margin-top:.75rem;font-size:.8rem;color:#6b7280">End-user login is at <code>/auth/ui/login</code>. This is the admin panel.</p>
   </div>
 </div>
 `;
@@ -504,6 +573,8 @@ export function createAdminRouter(
   options: AdminOptions,
 ): Router {
   const router = Router();
+  const eventBus = options.eventBus;
+  const rateLimiter = options.rateLimiter ? [options.rateLimiter] : [];
 
   // Ensure request bodies are parsed even if the parent app has no global body parser.
   router.use(expressJson());
@@ -654,6 +725,26 @@ export function createAdminRouter(
   const featWebhooks = !!options.webhookStore;
   const featTemplates = !!options.templateStore;
   const featUpload = !!options.uploadDir;
+
+  if (!options.silent) {
+    const featureEntries = [
+      ['Sessions', featSessions],
+      ['Roles & Permissions', featRoles],
+      ['Tenants', featTenants],
+      ['Metadata', featMetadata],
+      ['Control', featControl],
+      ['Linked Accounts', featLinkedAccounts],
+      ['API Keys', featApiKeys],
+      ['Webhooks', featWebhooks],
+      ['Email & UI', featTemplates],
+      ['Logo Upload', featUpload],
+    ] as const;
+    const enabled = featureEntries.filter(([, enabledFlag]) => enabledFlag).map(([label]) => label);
+    const disabled = featureEntries.filter(([, enabledFlag]) => !enabledFlag).map(([label]) => label);
+    process.stderr.write(
+      `[awesome-node-auth] INFO: Admin tabs enabled=[${enabled.join(', ') || 'none'}] disabled=[${disabled.join(', ') || 'none'}]\n`,
+    );
+  }
 
   // Resolve the directory that contains admin.css / admin.js.
   // Mirrors the same candidate-list pattern used in ui.router.ts.
@@ -906,7 +997,13 @@ export function createAdminRouter(
     try {
       const { role, tenantId } = req.body as { role: string; tenantId?: string };
       if (!role) { res.status(400).json({ error: 'role is required' }); return; }
-      await options.rbacStore.addRoleToUser(req.params['id'] as string, role, tenantId);
+      const userId = req.params['id'] as string;
+      await options.rbacStore.addRoleToUser(userId, role, tenantId);
+      publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
+        userId,
+        tenantId,
+        data: { role, actorId: adminActorId(res) },
+      });
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -917,11 +1014,49 @@ export function createAdminRouter(
   router.delete('/api/users/:id/roles/:role', guard, async (req: Request, res: Response) => {
     if (!options.rbacStore) { res.status(404).json({ error: 'RBAC store not configured' }); return; }
     try {
-      await options.rbacStore.removeRoleFromUser(
-        req.params['id'] as string,
-        decodeURIComponent(req.params['role'] as string),
-      );
+      const userId = req.params['id'] as string;
+      const role = decodeURIComponent(req.params['role'] as string);
+      await options.rbacStore.removeRoleFromUser(userId, role);
+      publishAdminEvent(eventBus, AuthEventNames.ROLE_REVOKED, req, {
+        userId,
+        data: { role, actorId: adminActorId(res) },
+      });
       res.json({ success: true });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, async (req: Request, res: Response) => {
+    const userId = req.params['id'] as string;
+    const method = (req.body as { method?: 'flag' | 'role' } | undefined)?.method ?? 'role';
+    try {
+      if (method === 'flag') {
+        const writableUserStore = userStore as AdminWritableUserStore;
+        if (typeof writableUserStore.update !== 'function') {
+          res.status(501).json({ error: 'IUserStore.update is required for method=flag' });
+          return;
+        }
+        await writableUserStore.update(userId, { isAdmin: true });
+        publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
+          userId,
+          data: { role: 'admin', method: 'flag', actorId: adminActorId(res) },
+        });
+        res.json({ success: true, method });
+        return;
+      }
+
+      if (!options.rbacStore) {
+        res.status(404).json({ error: 'RBAC store not configured' });
+        return;
+      }
+      await options.rbacStore.createRole('admin');
+      await options.rbacStore.addRoleToUser(userId, 'admin');
+      publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
+        userId,
+        data: { role: 'admin', method: 'role', actorId: adminActorId(res) },
+      });
+      res.json({ success: true, method });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }

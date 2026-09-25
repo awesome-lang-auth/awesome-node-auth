@@ -6,6 +6,12 @@ import { ISettingsStore } from '../interfaces/settings-store.interface';
 import { ITemplateStore } from '../interfaces/template-store.interface';
 import { RouterOptions, resolveApiPrefix } from './auth.router';
 
+/*
+ * End-user login UI lives here at /auth/ui/login. Admin login lives in
+ * admin.router.ts (typically /auth/admin/login when mounted together).
+ * Keep the two flows distinct: this router is for application users only.
+ */
+
 export interface UiRouterOptions {
     /**
      * Optional path to a directory containing custom UI assets.

@@ -1,4 +1,5 @@
 export { AuthConfigurator } from './auth-configurator';
+export type { AuthConfiguratorOptions, BuildAllRoutersOptions } from './auth-configurator';
 
 // ---- Framework-agnostic HTTP types ------------------------------------------
 export type { AuthRequest, AuthResponse, AuthNextFunction, AuthRequestHandler, AuthRouter } from './http-types';
@@ -64,7 +65,7 @@ export { createJwksAuthMiddleware } from './middleware/jwks-auth.middleware';
 export { createAuthRouter, buildUiLink } from './router/auth.router';
 export type { RouterOptions } from './router/auth.router';
 export { createAdminRouter } from './router/admin.router';
-export type { AdminOptions, AdminAccessPolicy } from './router/admin.router';
+export type { AdminOptions, AdminAccessPolicy, AuthorizedAdminUser } from './router/admin.router';
 export { buildUiRouter } from './router/ui.router';
 export type { UiRouterOptions } from './router/ui.router';
 
@@ -89,4 +90,3 @@ export { createToolsRouter } from './router/tools.router';
 export type { ToolsRouterOptions } from './router/tools.router';
 export { buildOpenApiSpec, buildSwaggerUiHtml, buildAuthOpenApiSpec, buildAdminOpenApiSpec } from './router/openapi';
 export type { OpenApiDocument, AuthOpenApiOptions, AdminOpenApiOptions } from './router/openapi';
-

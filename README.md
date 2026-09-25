@@ -23,11 +23,13 @@ npm install awesome-node-auth
 
 ```typescript
 import express from 'express';
-import { AuthConfigurator } from 'awesome-node-auth';
+import { AuthConfigurator, AuthEventBus } from 'awesome-node-auth';
 import { myUserStore } from './my-user-store'; // your IUserStore impl
 
 const app = express();
 app.use(express.json());
+
+const eventBus = new AuthEventBus();
 
 const auth = new AuthConfigurator(
   {
@@ -37,9 +39,17 @@ const auth = new AuthConfigurator(
     refreshTokenExpiresIn: '7d',
   },
   myUserStore,
+  { eventBus },
 );
 
-app.use('/auth', auth.router());  // mounts all auth endpoints
+app.use(auth.buildAllRouters({
+  admin: {
+    accessPolicy: 'is-admin-flag', // admin panel for users with isAdmin: true
+  },
+})); // mounts /auth/* and /auth/admin/*
+
+// Grant the admin panel from a seed script or CLI task (sets isAdmin; needs IUserStore.update):
+//   await auth.promoteToAdmin(userId, { method: 'flag' });
 
 app.get('/protected', auth.middleware(), (req, res) => {
   res.json({ user: req.user });
@@ -149,6 +159,34 @@ const auth = new AuthConfigurator(config, userStore, {
 ```
 
 Full configuration reference → [README.detailed.md § Configuration](./README.detailed.md#configuration)
+
+---
+
+## Admin UI
+
+Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`.
+
+| `admin` option (`AdminOptions`) | Unlocks |
+|---|---|
+| `sessionStore` | Sessions tab |
+| `rbacStore` | Roles & Permissions tab |
+| `tenantStore` | Tenants tab |
+| `userMetadataStore` | Metadata section in user detail |
+| `settingsStore` | ⚙️ Control tab |
+| `linkedAccountsStore` | Linked Accounts column |
+| `apiKeyStore` | 🔑 API Keys tab |
+| `webhookStore` | 🔗 Webhooks tab |
+| `templateStore` | Email & UI tab |
+| `uploadDir` (optionally `uploadBaseUrl`) | Logo upload in branding |
+
+---
+
+## Two login endpoints, two audiences
+
+- `/auth/ui/login` — end-user login for your application (built-in UI, `ui: { enabled: true }`)
+- `/auth/admin/` — admin panel for operators (its sign-in form posts to `/auth/admin/login`)
+
+They are intentionally different flows. If you mount the admin UI for operators, keep linking end users to `/auth/ui/login`.
 
 ---
 
