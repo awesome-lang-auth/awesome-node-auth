@@ -42,8 +42,9 @@ export type AuthorizedAdminUser = BaseUser & { roles: string[] };
  * | `(user, rbacStore?) => Promise<boolean>` | Custom async predicate.  Return `true` to grant access. |
  *
  * When `accessPolicy` is set the guard validates the request JWT (using
- * `jwtSecret`) and redirects unauthenticated browsers to the app login page
- * (`/auth/ui/login?redirect=<adminPath>`).
+ * `jwtSecret`).  Unauthenticated requests get `401`, except a browser request
+ * for the HTML panel, which is redirected to `loginPath` when it is set and
+ * otherwise shows the panel's built-in sign-in form.
  *
  * @since 1.8.0
  */
