@@ -33,7 +33,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - `tests/two-factor-token.test.ts` (`REGRESSION-2FA-ADMIN-GUARD`), `tests/admin-guard.test.ts` (`REGRESSION-ADMIN-GUARD-HTML-ACCEPT`, empty `adminSecret`), `tests/admin-promote.test.ts`, `tests/session-check.test.ts`, `tests/cookie-max-age.test.ts`, `tests/logout-bearer.test.ts`, `tests/link-request-csrf.test.ts` and `tests/cors-headers.test.ts`.
 
 #### Docs
-- README: `buildAllRouters()` quick start, "Admin UI" and "Two login endpoints, two audiences".
+- README: `buildAllRouters()` quick start, "Admin UI", "Two login endpoints, two audiences" and "Ecosystem".
 - README.detailed: `buildAllRouters()`, admin policy and `AuthorizedAdminUser`, `promoteToAdmin`/`revokeAdmin`, the promote endpoint, automatic event publication, `USER_EMAIL_CHANGED`, `IUserStore.update?()`, `sseDistributor` and the built-in register handler (`defaultRegister`).
 
 ### Changed
@@ -410,3 +410,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 | 1.7.0 | 2026-03-30 | Framework-agnostic HTTP types, Fastify adapter |
 | 1.8.x | 2026-03-30–04-18 | Multi-channel notify, session-based admin auth, admin UI improvements |
 | 1.9.0 | 2026-04-29 | IdP mode (RS256 + JWKS), Resource Server middleware, Flutter client support |
+| 1.10.0 | 2026-09-25 | `buildAllRouters()`, admin promote/revoke, automatic event publication, 2FA and admin token hardening |
