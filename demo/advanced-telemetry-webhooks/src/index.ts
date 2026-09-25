@@ -1,5 +1,5 @@
 // ============================================================
-// Express + MongoDB integration — awesome-node-auth@1.10.10
+// Express + MongoDB integration — @awesome-lang-auth/node@^1.10.1
 // Advanced demo: full feature set (CSRF, CORS, email verification,
 // OAuth Google + GitHub) backed by a real MongoDB database.
 //

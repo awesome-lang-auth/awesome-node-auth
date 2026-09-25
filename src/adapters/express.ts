@@ -12,7 +12,7 @@
  *
  * @example
  * ```ts
- * import { expressAdapter } from '@awesome-lang-auth/node/adapters/express';
+ * import { expressAdapter } from '@awesome-lang-auth/node';
  * import type { AuthRequestHandler } from '@awesome-lang-auth/node';
  *
  * const myMiddleware: AuthRequestHandler = (req, res, next) => {

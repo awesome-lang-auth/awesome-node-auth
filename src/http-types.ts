@@ -7,8 +7,8 @@
  * `Request`/`Response` objects satisfy them without any cast.
  *
  * Non-Express adapters (Fastify, Koa, Hapi, …) can implement these interfaces
- * or wrap their native objects with the helpers exported from
- * `@awesome-lang-auth/node/adapters/express` and `@awesome-lang-auth/node/adapters/fastify`.
+ * or wrap their native objects with the `expressAdapter` / `fastifyAdapter`
+ * helpers exported from `@awesome-lang-auth/node`.
  *
  * @since 1.7.0
  */
@@ -119,7 +119,7 @@ export type AuthNextFunction = (err?: any) => void;
  * app.use(requestLogger);
  *
  * // Mount on Fastify via adapter:
- * import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
+ * import { fastifyAdapter } from '@awesome-lang-auth/node';
  * fastify.addHook('preHandler', fastifyAdapter(requestLogger));
  * ```
  *

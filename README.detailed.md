@@ -253,7 +253,7 @@ public API.
 
 ```typescript
 import type { AuthRequestHandler } from '@awesome-lang-auth/node';
-import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
+import { fastifyAdapter } from '@awesome-lang-auth/node';
 
 // Write middleware once — works anywhere
 const requestLogger: AuthRequestHandler = (req, _res, next) => {
