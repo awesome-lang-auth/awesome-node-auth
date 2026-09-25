@@ -3106,7 +3106,7 @@ buildTokenPayload: async (user) => ({
 
 ## Session Management (v1.5.0)
 
-`ISessionStore` enables **Stateful Sessions**. While JWTs are stateless by nature, `node-auth` supports a hybrid approach where tokens are linked to a server-side session. This allows for **instant revocation** (e.g., on logout or via an admin panel) without waiting for token expiry.
+`ISessionStore` enables **Stateful Sessions**. While JWTs are stateless by nature, `awesome-node-auth` supports a hybrid approach where tokens are linked to a server-side session. With `checkOn: 'allcalls'` this allows for **instant revocation** (e.g., on logout or via an admin panel) without waiting for token expiry; with the default `'refresh'`, a revoked session can no longer obtain new tokens.
 
 ### Validation Modes (`checkOn`)
 
