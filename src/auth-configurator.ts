@@ -9,7 +9,7 @@ import { GithubStrategy } from './strategies/oauth/github.strategy';
 import { createAuthMiddleware } from './middleware/auth.middleware';
 import { createAuthRouter, resolveApiPrefix, RouterOptions } from './router/auth.router';
 import { ISessionStore } from './interfaces/session-store.interface';
-import { createAdminRouter, AdminOptions } from './router/admin.router';
+import { createAdminRouter, AdminOptions, AdminAccessPolicy } from './router/admin.router';
 import { publishSafely } from './router/router-events';
 import { AuthEventBus } from './events/auth-event-bus';
 import { AuthEventNames } from './events/auth-event-names';
@@ -20,13 +20,20 @@ export interface AuthConfiguratorOptions {
   eventBus?: AuthEventBus;
 }
 
+type BuildAllRoutersAdminOptions = Omit<AdminOptions, 'jwtSecret' | 'apiPrefix' | 'eventBus'> & {
+  jwtSecret?: string;
+  apiPrefix?: string;
+  eventBus?: AuthEventBus;
+};
+
 export interface BuildAllRoutersOptions {
   auth?: RouterOptions;
-  admin: Omit<AdminOptions, 'jwtSecret' | 'apiPrefix' | 'eventBus'> & {
-    jwtSecret?: string;
-    apiPrefix?: string;
-    eventBus?: AuthEventBus;
-  };
+  /**
+   * Options for the admin router.  `accessPolicy` (or the legacy `adminSecret`)
+   * is required: without either, `createAdminRouter` mounts the admin routes
+   * unprotected.  Pass `accessPolicy: 'open'` to opt out explicitly.
+   */
+  admin: BuildAllRoutersAdminOptions & ({ accessPolicy: AdminAccessPolicy } | { adminSecret: string });
 }
 
 type WritableUserStore = IUserStore & {

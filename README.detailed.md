@@ -2813,7 +2813,7 @@ app.use(auth.buildAllRouters({
 | Option | Type | Description |
 |--------|------|-------------|
 | `auth` | `RouterOptions` | Optional. Passed to `auth.router()`. The mount prefix is `auth.apiPrefix`, else `AuthConfig.apiPrefix`, else `'/auth'` (trailing slash removed). |
-| `admin` | `AdminOptions` | Required. Passed to `createAdminRouter()` with `jwtSecret` defaulting to `AuthConfig.accessTokenSecret` and `eventBus` defaulting to the configurator's `eventBus`. `apiPrefix` is always set to the resolved auth prefix. |
+| `admin` | `AdminOptions` | Required. Passed to `createAdminRouter()` with `jwtSecret` defaulting to `AuthConfig.accessTokenSecret` and `eventBus` defaulting to the configurator's `eventBus`. `apiPrefix` is always set to the resolved auth prefix. Set `accessPolicy` (or the legacy `adminSecret`) — the type requires one of them: without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr` (`accessPolicy: 'open'` opts out explicitly). |
 
 `AuthConfiguratorOptions` (third constructor argument) currently holds one field, `eventBus?: AuthEventBus`. It is passed to `auth.router()` unless `RouterOptions.eventBus` is set, to the admin router by `buildAllRouters()`, and used by `promoteToAdmin()` / `revokeAdmin()` — see [Automatic event publication](#automatic-event-publication).
 

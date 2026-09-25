@@ -10,7 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 ### Added
 
 #### One-call mounting and admin bootstrap
-- **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`).
+- **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`). `BuildAllRoutersOptions.admin` requires `accessPolicy` or the legacy `adminSecret`.
 - **`AuthConfigurator.promoteToAdmin()` / `revokeAdmin()`** — grant or remove admin access by role (`rbacStore`, the default) or by the `isAdmin` flag (`IUserStore.update`); `revokeAdmin` also accepts `method: 'both'`, which needs both stores. A revocation checks its prerequisites first and throws before changing anything when a store is missing.
 - **`POST /users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). It requires a JSON body (`415` otherwise). Registered **without** the `/api` segment used by the other admin REST endpoints.
 - **`IUserStore.update?(userId, patch)`** — optional partial update, used by the flag-based promote/revoke.
