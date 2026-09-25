@@ -7,7 +7,8 @@
     "extract-i18n": "node scripts/extract-i18n-keys.js",
     "build": "npm run extract-i18n && tsc && mkdir -p dist/ui-assets && cp -r src/ui/assets/* dist/ui-assets",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "sync:public": "bash scripts/sync-to-public.sh"
   },
   "repository": {
     "type": "git",
@@ -38,10 +39,15 @@
     "flutter",
     "bearer token",
     "sms",
+    "mcp",
+    "model-context-protocol",
+    "cursor-mcp",
     "event-bus",
     "pub-sub",
     "message-queue",
-    "redis"
+    "redis",
+    "vscode-mcp",
+    "antigravity-mcp"
   ],
   "author": "Nicola Brecciaroli",
   "license": "MIT",
