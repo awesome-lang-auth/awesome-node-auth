@@ -1655,8 +1655,14 @@ export function createAuthRouter(
           res.status(500).json({ error: 'UserStore does not implement updateAccountLinkToken', code: 'NOT_IMPLEMENTED' });
           return;
         }
-        // Manual CSRF check (since we removed authMiddleware which usually handles it)
-        if (config.csrf?.enabled) {
+        // Same credential rule as auth.middleware(): an Authorization: Bearer
+        // header is the credential, and then the accessToken cookie is ignored.
+        const authHeader = req.headers['authorization'];
+        const bearerToken = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '') || null;
+        // Manual CSRF check (since we removed authMiddleware which usually handles it).
+        // Like the middleware, it applies to requests without a bearer
+        // credential: cookie-authenticated and anonymous (conflict-linking) calls.
+        if (config.csrf?.enabled && !bearerToken) {
           const cookie = tokenService.extractTokenFromCookie(req, 'csrf-token');
           const header = req.headers['x-csrf-token'];
           if (!cookie || !header || cookie !== header) {
@@ -1669,8 +1675,7 @@ export function createAuthRouter(
         }
         let userId: string | null = null;
         // Try to get userId from existing session (standard linking)
-        const rawToken = tokenService.extractTokenFromCookie(req, 'accessToken') ||
-          (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].substring(7) : null);
+        const rawToken = bearerToken ?? tokenService.extractTokenFromCookie(req, 'accessToken');
         if (rawToken) {
           try {
             const payload = tokenService.verifyAccessToken(rawToken, config);

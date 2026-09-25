@@ -1698,6 +1698,7 @@ The library supports the **double-submit cookie** pattern for CSRF defence, whic
 1. When CSRF is enabled, the library sets a non-`HttpOnly` cookie called `csrf-token` alongside the JWT cookies after every login/refresh.
 2. Client-side JavaScript must read this cookie and send its value in the `X-CSRF-Token` header on every authenticated request.
 3. `createAuthMiddleware` validates that the header value matches the cookie value. If they don’t match, the request is rejected with **403 CSRF_INVALID**.
+4. Requests that carry an `Authorization: Bearer` credential are exempt, and on them the `accessToken` cookie is ignored. `POST /auth/link-request`, which runs its own check because it also serves anonymous conflict-linking, follows the same rule: bearer requests are exempt, cookie-authenticated and anonymous ones are checked.
 
 ### Enabling CSRF
 
