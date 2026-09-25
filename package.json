@@ -7,8 +7,7 @@
     "extract-i18n": "node scripts/extract-i18n-keys.js",
     "build": "npm run extract-i18n && tsc && mkdir -p dist/ui-assets && cp -r src/ui/assets/* dist/ui-assets",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "sync:public": "bash scripts/sync-to-public.sh"
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",

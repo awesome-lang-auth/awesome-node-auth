@@ -268,7 +268,7 @@ app.use(requestLogger);
 fastify.addHook('preHandler', fastifyAdapter(requestLogger));
 ```
 
-See `wiki/docs/frameworks/framework-agnostic.md` and `examples/fastify-integration.example.ts`
+See the *Framework-agnostic* guide on the documentation site and `examples/fastify-integration.example.ts`
 for full usage examples.
 
 ---

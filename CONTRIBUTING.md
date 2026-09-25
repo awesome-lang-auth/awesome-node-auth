@@ -17,9 +17,9 @@ npm run build     # compile TypeScript
 ```
 src/          Library source (TypeScript)
 tests/        Vitest test suite
-wiki/         Docusaurus documentation site
 demo/         Collection of demo applications (express-vanilla, nestjs, nextjs, etc.)
 examples/     Integration examples
+scripts/      Build helpers (i18n key extraction)
 ```
 
 ## How to contribute
