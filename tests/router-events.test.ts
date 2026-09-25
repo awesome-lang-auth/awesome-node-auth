@@ -162,6 +162,49 @@ describe('router event payloads', () => {
     ]);
   });
 
+  it('records no actorId under adminSecret or accessPolicy "open", even when an upstream middleware set req.user', async () => {
+    const store = new InMemoryUserStore();
+    const bus = new AuthEventBus();
+    const seen = collect(bus);
+    const upstreamUser = (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+      (req as unknown as { user: unknown }).user = { id: 'upstream-user' };
+      next();
+    };
+
+    const secretApp = express();
+    secretApp.use(upstreamUser);
+    secretApp.use('/admin', createAdminRouter(store, {
+      adminSecret: 'the-admin-secret',
+      rbacStore: makeRbacStore(),
+      eventBus: bus,
+      silent: true,
+    }));
+    const viaSecret = await request(secretApp)
+      .post('/admin/users/u-10/promote')
+      .set('Authorization', 'Bearer the-admin-secret')
+      .send({});
+    expect(viaSecret.status).toBe(200);
+
+    const openApp = express();
+    openApp.use(upstreamUser);
+    openApp.use('/admin', createAdminRouter(store, {
+      accessPolicy: 'open',
+      rbacStore: makeRbacStore(),
+      eventBus: bus,
+      silent: true,
+    }));
+    const viaOpen = await request(openApp).post('/admin/users/u-11/promote').send({});
+    expect(viaOpen.status).toBe(200);
+
+    expect(seen.map((e) => [e.userId, e.data])).toEqual([
+      ['u-10', { role: 'admin', method: 'role', actorId: undefined }],
+      ['u-11', { role: 'admin', method: 'role', actorId: undefined }],
+    ]);
+    for (const event of seen) {
+      expect((event.data as Record<string, unknown>)['actorId']).toBeUndefined();
+    }
+  });
+
   it('a throwing listener does not fail a completed operation', async () => {
     const store = new InMemoryUserStore();
     await store.create({ email: 'user@x.test', password: await passwordService.hash('password123') });

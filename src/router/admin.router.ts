@@ -217,12 +217,14 @@ type AdminWritableUserStore = IUserStore & {
 };
 
 /**
- * Id of the admin the guard authorized for this request (the actor of a
- * privilege change), when the guard identified one.
+ * Id of the admin the `accessPolicy` guard authorized for this request (the
+ * actor of a privilege change).  Only the policy guard sets it, in
+ * `res.locals.adminActorId`; `req.user` is not read, because under
+ * `adminSecret` or `'open'` it can only come from an upstream middleware.
  */
-function adminActorId(req: Request): string | undefined {
-  const user = (req as unknown as { user?: { id?: unknown } }).user;
-  return typeof user?.id === 'string' ? user.id : undefined;
+function adminActorId(res: Response): string | undefined {
+  const actorId: unknown = res.locals['adminActorId'];
+  return typeof actorId === 'string' ? actorId : undefined;
 }
 
 /**
@@ -405,6 +407,7 @@ function buildPolicyGuard(
         isAdmin: true,
         roles: ['admin'],
       } as AuthorizedAdminUser;
+      res.locals['adminActorId'] = userId;
       next();
       return;
     }
@@ -453,6 +456,7 @@ function buildPolicyGuard(
     // Store user on request for downstream handlers
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any).user = authorizedUser;
+    res.locals['adminActorId'] = authorizedUser.id;
     next();
   };
 }
@@ -995,7 +999,7 @@ export function createAdminRouter(
       publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
         userId,
         tenantId,
-        data: { role, actorId: adminActorId(req) },
+        data: { role, actorId: adminActorId(res) },
       });
       res.json({ success: true });
     } catch {
@@ -1012,7 +1016,7 @@ export function createAdminRouter(
       await options.rbacStore.removeRoleFromUser(userId, role);
       publishAdminEvent(eventBus, AuthEventNames.ROLE_REVOKED, req, {
         userId,
-        data: { role, actorId: adminActorId(req) },
+        data: { role, actorId: adminActorId(res) },
       });
       res.json({ success: true });
     } catch {
@@ -1033,7 +1037,7 @@ export function createAdminRouter(
         await writableUserStore.update(userId, { isAdmin: true });
         publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
           userId,
-          data: { role: 'admin', method: 'flag', actorId: adminActorId(req) },
+          data: { role: 'admin', method: 'flag', actorId: adminActorId(res) },
         });
         res.json({ success: true, method });
         return;
@@ -1047,7 +1051,7 @@ export function createAdminRouter(
       await options.rbacStore.addRoleToUser(userId, 'admin');
       publishAdminEvent(eventBus, AuthEventNames.ROLE_ASSIGNED, req, {
         userId,
-        data: { role: 'admin', method: 'role', actorId: adminActorId(req) },
+        data: { role: 'admin', method: 'role', actorId: adminActorId(res) },
       });
       res.json({ success: true, method });
     } catch {
