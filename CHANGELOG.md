@@ -8,11 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 ## [1.10.1] — 2026-09-25
 
 ### Changed
-- The package is now published as **`@awesome-lang-auth/node`**, with no code change: the API, the HTTP routes and the served UI are those of 1.10.0. `awesome-node-auth` will remain available as a deprecated alias that depends on `@awesome-lang-auth/node` (published separately).
+- The package is now published as **`@awesome-lang-auth/node`**, with no API change: the API, the HTTP routes and the served UI are those of 1.10.0. `awesome-node-auth` will remain available as a deprecated alias that depends on `@awesome-lang-auth/node` (published separately).
 - Migration: replace the dependency (`npm uninstall awesome-node-auth && npm install @awesome-lang-auth/node`) and change the import specifier from `'awesome-node-auth'` to `'@awesome-lang-auth/node'`, in `import` and `require()` alike.
 - The repository moved to the `awesome-lang-auth` GitHub organization: <https://github.com/awesome-lang-auth/awesome-node-auth>. `repository` and `bugs` in `package.json` point there.
 - README, README.detailed, the examples, the demos and the doc comments use the new package name; the demos depend on `@awesome-lang-auth/node` `^1.10.1`.
 - The publish workflow skips `npm publish` when the `package.json` version is already on the registry.
+
+### Fixed
+- The auth UI and admin panel asset lookup also tries `node_modules/@awesome-lang-auth/node/{dist/ui-assets,src/ui/assets}` under the working directory, before the old `node_modules/awesome-node-auth/…` paths. That fallback is the one a bundled server (esbuild, webpack) reaches when `__dirname` no longer points into the package; without it, a bundled app on the new name served 404 for the UI and the admin CSS and JS.
 
 ---
 
