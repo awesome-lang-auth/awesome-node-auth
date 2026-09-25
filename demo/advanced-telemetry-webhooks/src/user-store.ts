@@ -4,7 +4,7 @@
 // Install: npm install mongodb
 // ============================================================
 
-import type { IUserStore, BaseUser } from 'awesome-node-auth';
+import type { IUserStore, BaseUser } from '@awesome-lang-auth/node';
 
 // ---- Document shape -------------------------------------------------------
 

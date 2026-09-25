@@ -10,7 +10,7 @@
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",
-    "awesome-node-auth": "^1.9.0",
+    "@awesome-lang-auth/node": "^1.10.1",
     "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"

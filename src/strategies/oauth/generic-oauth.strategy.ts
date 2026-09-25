@@ -10,7 +10,7 @@ import { AuthError } from '../../models/errors';
  *
  * @example
  * ```typescript
- * import { GenericOAuthStrategy, GenericOAuthProviderConfig } from 'awesome-node-auth';
+ * import { GenericOAuthStrategy, GenericOAuthProviderConfig } from '@awesome-lang-auth/node';
  *
  * const microsoftConfig: GenericOAuthProviderConfig = {
  *   name: 'microsoft',

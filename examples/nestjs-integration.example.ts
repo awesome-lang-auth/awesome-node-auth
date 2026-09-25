@@ -4,7 +4,7 @@
  * Demonstrates how to integrate awesome-node-auth inside a NestJS application.
  *
  * Installation (in your NestJS project):
- *   npm install awesome-node-auth
+ *   npm install @awesome-lang-auth/node
  *
  * NOTE: This file is intentionally NOT compiled by tsconfig.json (it lives in
  * examples/, which is excluded). Treat it as reference documentation.

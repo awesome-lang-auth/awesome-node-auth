@@ -47,7 +47,7 @@ export interface TelemetryFilter {
  *
  * @example
  * ```typescript
- * import { ITelemetryStore, TelemetryEvent } from 'awesome-node-auth';
+ * import { ITelemetryStore, TelemetryEvent } from '@awesome-lang-auth/node';
  *
  * export class MyTelemetryStore implements ITelemetryStore {
  *   async save(event: TelemetryEvent): Promise<void> {

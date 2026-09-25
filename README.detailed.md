@@ -2,14 +2,14 @@
 
 > **Quick-start README** → [README.md](./README.md) | **Changelog** → [CHANGELOG.md](./CHANGELOG.md)
 
-![npm version](https://img.shields.io/npm/v/awesome-node-auth)
+![npm version](https://img.shields.io/npm/v/@awesome-lang-auth/node)
 ![license](https://img.shields.io/github/license/nik2208/awesome-node-auth)
 ![github stars](https://img.shields.io/github/stars/nik2208/awesome-node-auth)
 [![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/nik2208)
 [![](https://pixel.applikat.it/pixel.gif?site=awesomenodeauth.com)]()
 [![](https://umami.applikat.it/p/XDb4MrjuD)]()
 
-[![NPM](https://nodei.co/npm/awesome-node-auth.png?downloads=true&downloadRank=true)](https://nodei.co/npm/awesome-node-auth/)
+[![NPM](https://nodei.co/npm/@awesome-lang-auth/node.png?downloads=true&downloadRank=true)](https://nodei.co/npm/@awesome-lang-auth/node/)
 
 
 A production-ready, **database-agnostic** JWT authentication and communication bus for Node.js written in TypeScript. It establishes a 360-degree communication and access control layer compatible with any Node.js framework (NestJS, Next.js, Express, Fastify, etc.) and any database through a simple interface pattern.
@@ -19,14 +19,14 @@ A production-ready, **database-agnostic** JWT authentication and communication b
 ## Installation
 
 ```bash
-npm install awesome-node-auth
+npm install @awesome-lang-auth/node
 ```
 
 ## Quick Start
 
 ```typescript
 import express from 'express';
-import { AuthConfigurator } from 'awesome-node-auth';
+import { AuthConfigurator } from '@awesome-lang-auth/node';
 import { myUserStore } from './my-user-store'; // Your IUserStore implementation
 
 const app = express();
@@ -94,7 +94,7 @@ The library is **completely database-agnostic**. The only coupling point to your
 ### Interface contract
 
 ```typescript
-import { IUserStore, BaseUser } from 'awesome-node-auth';
+import { IUserStore, BaseUser } from '@awesome-lang-auth/node';
 
 export class MyUserStore implements IUserStore {
   // ---- Required: core CRUD -------------------------------------------------------
@@ -217,7 +217,7 @@ const auth = new AuthConfigurator(config, userStore);
 **PostgreSQL (example skeleton):**
 ```typescript
 import { Pool } from 'pg';
-import { IUserStore, BaseUser } from 'awesome-node-auth';
+import { IUserStore, BaseUser } from '@awesome-lang-auth/node';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -252,8 +252,8 @@ public API.
 | `fastifyAdapter(fn)` | Wrap `AuthRequestHandler` as a Fastify `preHandler` hook via `req.raw` |
 
 ```typescript
-import type { AuthRequestHandler } from 'awesome-node-auth';
-import { fastifyAdapter } from 'awesome-node-auth/adapters/fastify';
+import type { AuthRequestHandler } from '@awesome-lang-auth/node';
+import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
 
 // Write middleware once — works anywhere
 const requestLogger: AuthRequestHandler = (req, _res, next) => {
@@ -336,7 +336,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 // app/dashboard/page.tsx
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { TokenService } from 'awesome-node-auth';
+import { TokenService } from '@awesome-lang-auth/node';
 import { authConfig } from '../../lib/auth';
 
 export default async function DashboardPage() {
@@ -398,7 +398,7 @@ When your frontend and backend run on different domains (e.g., `api.yourapp.com`
 The `awesome-node-auth` router can handle CORS headers automatically if you provide the `cors` option in `RouterOptions`. This is the recommended approach for auth routes because it automatically handles the `Vary: Origin` header and resolves the correct `siteUrl` dynamically for password resets and magic links.
 
 ```typescript
-import { createAuthRouter } from 'awesome-node-auth';
+import { createAuthRouter } from '@awesome-lang-auth/node';
 
 app.use('/auth', createAuthRouter(userStore, config, {
   cors: {
@@ -427,7 +427,7 @@ If they are on **completely different domains**:
 ## Configuration
 
 ```typescript
-import { AuthConfig } from 'awesome-node-auth';
+import { AuthConfig } from '@awesome-lang-auth/node';
 
 const config: AuthConfig = {
   // Required
@@ -531,7 +531,7 @@ Configure `email.mailer` in `AuthConfig`. The library will automatically send em
 built-in templates whenever a reset link or magic link needs to go out.
 
 ```typescript
-import { AuthConfig, MailerConfig } from 'awesome-node-auth';
+import { AuthConfig, MailerConfig } from '@awesome-lang-auth/node';
 
 const config: AuthConfig = {
   // ...jwt secrets, cookies...
@@ -595,7 +595,7 @@ body to override `defaultLang` for a single request:
 #### Using `MailerService` directly
 
 ```typescript
-import { MailerService } from 'awesome-node-auth';
+import { MailerService } from '@awesome-lang-auth/node';
 
 const mailer = new MailerService({
   endpoint:    'https://mailer.example.com/send',
@@ -675,7 +675,7 @@ OAuth strategies are abstract—extend them to implement your own user lookup lo
 The profile object passed to `findOrCreateUser` now includes an `emailVerified` boolean (available from Google; derived from the primary-email entry for GitHub). Always store the provider’s opaque user ID in `providerAccountId` and use `findByProviderAccount` for safe lookups — **do not** rely solely on email matching, which is vulnerable to account-takeover attacks.
 
 ```typescript
-import { GoogleStrategy, BaseUser, AuthConfig, AuthError } from 'awesome-node-auth';
+import { GoogleStrategy, BaseUser, AuthConfig, AuthError } from '@awesome-lang-auth/node';
 
 class MyGoogleStrategy extends GoogleStrategy<BaseUser> {
   constructor(config: AuthConfig, private userStore: MyUserStore) {
@@ -752,7 +752,7 @@ Handle the `/auth/account-conflict` route in your frontend to prompt the user to
 Provide an `IPendingLinkStore` to let the library manage stashing natively — no custom `/conflict-link-*` routes needed:
 
 ```typescript
-import { IPendingLinkStore } from 'awesome-node-auth';
+import { IPendingLinkStore } from '@awesome-lang-auth/node';
 
 class RedisPendingLinkStore implements IPendingLinkStore {
   async stash(email: string, provider: string, providerAccountId: string): Promise<void> {
@@ -820,7 +820,7 @@ Use `GenericOAuthStrategy` to integrate any OAuth 2.0 provider that follows the 
 Authorization Code flow with a JSON user-info endpoint — no need to write boilerplate:
 
 ```typescript
-import { GenericOAuthStrategy, GenericOAuthProviderConfig, BaseUser } from 'awesome-node-auth';
+import { GenericOAuthStrategy, GenericOAuthProviderConfig, BaseUser } from '@awesome-lang-auth/node';
 
 const discordConfig: GenericOAuthProviderConfig = {
   name: 'discord',
@@ -872,7 +872,7 @@ users can connect multiple providers to a single account. The following endpoint
 | `POST` | `/auth/link-verify` | Complete the link with the token from the email |
 
 ```typescript
-import { ILinkedAccountsStore, LinkedAccount } from 'awesome-node-auth';
+import { ILinkedAccountsStore, LinkedAccount } from '@awesome-lang-auth/node';
 
 class MyLinkedAccountsStore implements ILinkedAccountsStore {
   async getLinkedAccounts(userId: string): Promise<LinkedAccount[]> {
@@ -975,7 +975,7 @@ import {
   TotpStrategy,
   LocalStrategy,
   PasswordService,
-} from 'awesome-node-auth';
+} from '@awesome-lang-auth/node';
 
 // Magic Links
 const magicLink = new MagicLinkStrategy();
@@ -1145,7 +1145,7 @@ await userStore.create({
 The callback receives three arguments: `(data, config, options)` where `options` is the `RouterOptions` object passed to `createAuthRouter`. Use `buildUiLink` to generate correct redirect URLs regardless of whether the built-in UI is enabled:
 
 ```typescript
-import { PasswordService, TokenService, buildUiLink } from 'awesome-node-auth';
+import { PasswordService, TokenService, buildUiLink } from '@awesome-lang-auth/node';
 
 const passwordService = new PasswordService();
 const tokenService = new TokenService();
@@ -1479,7 +1479,7 @@ const user = AwesomeNodeAuth.getUser();     // user from the last checkSession
 The UI router is automatically mounted when `ui.enabled: true` in `AuthConfig` and you use `auth.router()`. If you need more control, use `buildUiRouter` directly:
 
 ```typescript
-import { buildUiRouter } from 'awesome-node-auth';
+import { buildUiRouter } from '@awesome-lang-auth/node';
 import path from 'path';
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
@@ -1900,7 +1900,7 @@ If you prefer to use the built-in `JwksService.generateKeypair()` helper:
 
 ```bash
 node -e "
-const { JwksService } = require('awesome-node-auth');
+const { JwksService } = require('@awesome-lang-auth/node');
 const { privateKey } = JwksService.generateKeypair();
 console.log('IDP_PRIVATE_KEY=' + JSON.stringify(privateKey));
 "
@@ -1923,7 +1923,7 @@ privateKey: JSON.parse(process.env.IDP_PRIVATE_KEY!)
 ### Provisioner (IdP) setup
 
 ```typescript
-import { AuthConfigurator } from 'awesome-node-auth';
+import { AuthConfigurator } from '@awesome-lang-auth/node';
 
 const auth = new AuthConfigurator({
   accessTokenSecret:  process.env.ACCESS_TOKEN_SECRET!,
@@ -2011,7 +2011,7 @@ curl https://auth.myplatform.com/.well-known/jwks.json
 
 ```typescript
 import express from 'express';
-import { createJwksAuthMiddleware } from 'awesome-node-auth';
+import { createJwksAuthMiddleware } from '@awesome-lang-auth/node';
 
 const app = express();
 
@@ -2069,7 +2069,7 @@ const verifyToken = createJwksAuthMiddleware({
 ### `JwksService` public API
 
 ```typescript
-import { JwksService, JwksClient } from 'awesome-node-auth';
+import { JwksService, JwksClient } from '@awesome-lang-auth/node';
 
 // Generate a new RSA-2048 keypair
 const { privateKey, publicKey } = JwksService.generateKeypair();
@@ -2122,7 +2122,7 @@ const keyPem = await client.getKey('my-key-id');
 The library throws `AuthError` for authentication failures:
 
 ```typescript
-import { AuthError } from 'awesome-node-auth';
+import { AuthError } from '@awesome-lang-auth/node';
 
 try {
   await localStrategy.authenticate({ email, password }, config);
@@ -2155,7 +2155,7 @@ Any unhandled errors thrown inside route handlers are caught by a global error m
 Extend `BaseAuthStrategy` to create custom authentication strategies:
 
 ```typescript
-import { BaseAuthStrategy, AuthConfig } from 'awesome-node-auth';
+import { BaseAuthStrategy, AuthConfig } from '@awesome-lang-auth/node';
 
 class ApiKeyStrategy extends BaseAuthStrategy<{ apiKey: string }, MyUser> {
   name = 'api-key';
@@ -2654,7 +2654,7 @@ await fetch('/auth/magic-link/verify', {
 `createAdminRouter` mounts a **self-contained admin panel** — both the REST API and a vanilla-JS UI — at any path you choose. No build step, no external UI dependencies.
 
 ```typescript
-import { createAdminRouter } from 'awesome-node-auth';
+import { createAdminRouter } from '@awesome-lang-auth/node';
 import path from 'path';
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
@@ -2817,7 +2817,7 @@ The upload-related admin REST API endpoints (only available when `uploadDir` is 
 `AuthConfigurator.buildAllRouters(options)` returns one router that mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin`. Mount it at the application root:
 
 ```typescript
-import { AuthConfigurator, AuthEventBus } from 'awesome-node-auth';
+import { AuthConfigurator, AuthEventBus } from '@awesome-lang-auth/node';
 
 const eventBus = new AuthEventBus();
 const auth = new AuthConfigurator(config, userStore, { eventBus }); // AuthConfiguratorOptions
@@ -2852,7 +2852,7 @@ Unless `loginPath` redirects elsewhere, the admin panel shows its own sign-in fo
 Before evaluating `accessPolicy`, the guard loads the user's roles with `rbacStore.getRolesForUser(user.id)` (when `rbacStore` is configured; a failed lookup yields `[]`) and builds an `AuthorizedAdminUser` — `BaseUser & { roles: string[] }`. A custom policy function receives it, and it is stored on `req.user` for the admin handlers. A root/bootstrap session gets `roles: ['admin']`.
 
 ```typescript
-import { createAdminRouter, AuthorizedAdminUser } from 'awesome-node-auth';
+import { createAdminRouter, AuthorizedAdminUser } from '@awesome-lang-auth/node';
 
 app.use('/admin', createAdminRouter(userStore, {
   jwtSecret: process.env.ACCESS_TOKEN_SECRET!,
@@ -2997,7 +2997,7 @@ The returned object is **merged** on top of the standard fields:
 This ensures that critical security flags (like `hasPassword`) or custom metadata are available to the frontend regardless of the authentication strategy (Bearer Tokens or HttpOnly Cookies).
 
 ```typescript
-import { AuthConfigurator, AuthConfig } from 'awesome-node-auth';
+import { AuthConfigurator, AuthConfig } from '@awesome-lang-auth/node';
 
 const config: AuthConfig = {
   accessTokenSecret: '...',
@@ -3038,7 +3038,7 @@ Any data you inject via this callback becomes automatically available directly i
 `IUserMetadataStore` is an **optional** interface for attaching arbitrary key/value metadata to users without altering `BaseUser` or your users table.
 
 ```typescript
-import { IUserMetadataStore } from 'awesome-node-auth';
+import { IUserMetadataStore } from '@awesome-lang-auth/node';
 
 export class MyUserMetadataStore implements IUserMetadataStore {
   /** Return all metadata for a user; empty object when none exists. */
@@ -3081,7 +3081,7 @@ console.log(meta.theme); // 'dark'
 `IRolesPermissionsStore` is an **optional** interface for role-based access control (RBAC). It supports both single-tenant and multi-tenant applications via an optional `tenantId` parameter.
 
 ```typescript
-import { IRolesPermissionsStore } from 'awesome-node-auth';
+import { IRolesPermissionsStore } from '@awesome-lang-auth/node';
 
 export class MyRbacStore implements IRolesPermissionsStore {
   // User → Role
@@ -3157,7 +3157,7 @@ When an `ISessionStore` is provided, the following endpoints are automatically m
 ### Implementing ISessionStore
 
 ```typescript
-import { ISessionStore, SessionInfo } from 'awesome-node-auth';
+import { ISessionStore, SessionInfo } from '@awesome-lang-auth/node';
 
 export class MySessionStore implements ISessionStore {
   async createSession(info: Omit<SessionInfo, 'sessionHandle'>): Promise<SessionInfo> {
@@ -3208,7 +3208,7 @@ app.get('/api/data', auth.middleware({ sessionStore }), handler); // session che
 `ITenantStore` is an **optional** interface for applications that serve multiple independent tenants (organisations, workspaces, teams).
 
 ```typescript
-import { ITenantStore, Tenant } from 'awesome-node-auth';
+import { ITenantStore, Tenant } from '@awesome-lang-auth/node';
 
 export class MyTenantStore implements ITenantStore {
   // Tenant CRUD
@@ -3293,7 +3293,7 @@ import {
   AuthEventNames,
   AuthTools,
   createToolsRouter,
-} from 'awesome-node-auth';
+} from '@awesome-lang-auth/node';
 
 // 1. Create the event bus
 const bus = new AuthEventBus();
@@ -3451,7 +3451,7 @@ All event names follow the `domain.resource.action` convention:
 Implement `ITelemetryStore` to persist events in any database:
 
 ```ts
-import { ITelemetryStore, TelemetryEvent } from 'awesome-node-auth';
+import { ITelemetryStore, TelemetryEvent } from '@awesome-lang-auth/node';
 
 export class MyTelemetryStore implements ITelemetryStore {
   async save(event: TelemetryEvent): Promise<void> {
@@ -3514,7 +3514,7 @@ tools.notify('user:123', { message: 'Your password was changed.' }, {
 **Custom distributor for `notify()` — `sseDistributor`:**
 
 ```ts
-import { AuthTools, ISseDistributor } from 'awesome-node-auth';
+import { AuthTools, ISseDistributor } from '@awesome-lang-auth/node';
 
 const myDistributor: ISseDistributor = {
   async publish(topic, event) { await redis.publish('sse', JSON.stringify({ topic, event })); },
@@ -3536,7 +3536,7 @@ POST /tools/notify/:target       – send notification to a topic
 ### Outgoing Webhooks — `IWebhookStore`
 
 ```ts
-import { IWebhookStore, WebhookConfig } from 'awesome-node-auth';
+import { IWebhookStore, WebhookConfig } from '@awesome-lang-auth/node';
 
 export class MyWebhookStore implements IWebhookStore {
   async findByEvent(event: string, tenantId?: string): Promise<WebhookConfig[]> {
@@ -3570,7 +3570,7 @@ Each webhook is delivered with optional **HMAC-SHA256 signing** and **exponentia
 Verify inbound signatures:
 
 ```ts
-import { WebhookSender } from 'awesome-node-auth';
+import { WebhookSender } from '@awesome-lang-auth/node';
 
 const sender = new WebhookSender();
 const isValid = sender.verify(rawBody, process.env.WEBHOOK_SECRET!, req.headers['x-webhook-signature']!);
@@ -3629,7 +3629,7 @@ External → POST /tools/webhook/:provider
 **Step 1 — expose service methods as injectable actions:**
 
 ```ts
-import { webhookAction, ActionRegistry } from 'awesome-node-auth';
+import { webhookAction, ActionRegistry } from '@awesome-lang-auth/node';
 
 class SubscriptionService {
   @webhookAction({
@@ -3742,7 +3742,7 @@ Every router ships with a self-contained, **zero-dependency** Swagger UI and Ope
 #### Enabling per router
 
 ```ts
-import { createAuthRouter, createAdminRouter, createToolsRouter } from 'awesome-node-auth';
+import { createAuthRouter, createAdminRouter, createToolsRouter } from '@awesome-lang-auth/node';
 
 // Auth router
 app.use('/auth', createAuthRouter(store, config, {
@@ -3784,7 +3784,7 @@ import {
   buildAuthOpenApiSpec,
   buildAdminOpenApiSpec,
   buildOpenApiSpec,    // tools
-} from 'awesome-node-auth';
+} from '@awesome-lang-auth/node';
 
 // Auth spec
 const authSpec = buildAuthOpenApiSpec(
@@ -3848,7 +3848,7 @@ req.apiKey = { keyId, keyPrefix, name, serviceId, scopes }
 ### Implementing IApiKeyStore
 
 ```ts
-import { IApiKeyStore, ApiKey, ApiKeyAuditEntry } from 'awesome-node-auth';
+import { IApiKeyStore, ApiKey, ApiKeyAuditEntry } from '@awesome-lang-auth/node';
 
 export class MyApiKeyStore implements IApiKeyStore {
   async save(key: ApiKey): Promise<void> {
@@ -3882,7 +3882,7 @@ export class MyApiKeyStore implements IApiKeyStore {
 ### Creating a key
 
 ```ts
-import { ApiKeyService } from 'awesome-node-auth';
+import { ApiKeyService } from '@awesome-lang-auth/node';
 
 const service = new ApiKeyService();
 
@@ -3904,7 +3904,7 @@ Generated keys have the format `ak_<48 hex characters>` (~196 bits of entropy).
 ### Protecting routes
 
 ```ts
-import { createApiKeyMiddleware } from 'awesome-node-auth';
+import { createApiKeyMiddleware } from '@awesome-lang-auth/node';
 
 // Basic — any valid, active key is accepted
 app.use('/tools', createApiKeyMiddleware(myApiKeyStore));

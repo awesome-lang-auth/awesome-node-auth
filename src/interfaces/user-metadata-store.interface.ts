@@ -11,7 +11,7 @@
  *
  * @example
  * ```typescript
- * import { IUserMetadataStore } from 'awesome-node-auth';
+ * import { IUserMetadataStore } from '@awesome-lang-auth/node';
  *
  * export class MyUserMetadataStore implements IUserMetadataStore {
  *   async getMetadata(userId: string) {

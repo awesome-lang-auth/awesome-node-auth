@@ -16,8 +16,8 @@
  * @example
  * ```ts
  * import Fastify from 'fastify';
- * import { fastifyAdapter } from 'awesome-node-auth/adapters/fastify';
- * import { createAuthMiddleware } from 'awesome-node-auth';
+ * import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
+ * import { createAuthMiddleware } from '@awesome-lang-auth/node';
  *
  * const fastify = Fastify();
  * const authMiddleware = createAuthMiddleware(authConfig, userStore);
@@ -66,7 +66,7 @@ interface FastifyLikeReply {
  *
  * @example
  * ```ts
- * import { fastifyAdapter } from 'awesome-node-auth/adapters/fastify';
+ * import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
  *
  * fastify.addHook('preHandler', fastifyAdapter(authMiddleware));
  * ```

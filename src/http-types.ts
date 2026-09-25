@@ -8,7 +8,7 @@
  *
  * Non-Express adapters (Fastify, Koa, Hapi, …) can implement these interfaces
  * or wrap their native objects with the helpers exported from
- * `awesome-node-auth/adapters/express` and `awesome-node-auth/adapters/fastify`.
+ * `@awesome-lang-auth/node/adapters/express` and `@awesome-lang-auth/node/adapters/fastify`.
  *
  * @since 1.7.0
  */
@@ -107,7 +107,7 @@ export type AuthNextFunction = (err?: any) => void;
  *
  * @example
  * ```ts
- * import type { AuthRequestHandler } from 'awesome-node-auth';
+ * import type { AuthRequestHandler } from '@awesome-lang-auth/node';
  *
  * // Write middleware once — works on Express, Fastify, Koa, …
  * const requestLogger: AuthRequestHandler = (req, _res, next) => {
@@ -119,7 +119,7 @@ export type AuthNextFunction = (err?: any) => void;
  * app.use(requestLogger);
  *
  * // Mount on Fastify via adapter:
- * import { fastifyAdapter } from 'awesome-node-auth/adapters/fastify';
+ * import { fastifyAdapter } from '@awesome-lang-auth/node/adapters/fastify';
  * fastify.addHook('preHandler', fastifyAdapter(requestLogger));
  * ```
  *

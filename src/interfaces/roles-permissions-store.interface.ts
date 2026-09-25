@@ -5,7 +5,7 @@
  * @example
  * ```typescript
  * // Mongoose example
- * import { IRoleDocument } from 'awesome-node-auth';
+ * import { IRoleDocument } from '@awesome-lang-auth/node';
  * import { Schema, model, Document } from 'mongoose';
  *
  * interface IRoleDoc extends IRoleDocument, Document {}
@@ -29,7 +29,7 @@ export interface IRoleDocument {
  * @example
  * ```typescript
  * // Mongoose example
- * import { IRoleUserDocument } from 'awesome-node-auth';
+ * import { IRoleUserDocument } from '@awesome-lang-auth/node';
  * import { Schema, model, Document } from 'mongoose';
  *
  * interface IRoleUserDoc extends IRoleUserDocument, Document {}
@@ -57,7 +57,7 @@ export interface IRoleUserDocument {
  *
  * @example
  * ```typescript
- * import { IRolesPermissionsStore } from 'awesome-node-auth';
+ * import { IRolesPermissionsStore } from '@awesome-lang-auth/node';
  *
  * export class MyRbacStore implements IRolesPermissionsStore {
  *   async addRoleToUser(userId, role, tenantId?) { ... }

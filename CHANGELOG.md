@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
+## [1.10.1] — 2026-09-25
+
+### Changed
+- The package is now published as **`@awesome-lang-auth/node`**, with no code change: the API, the HTTP routes and the served UI are those of 1.10.0. `awesome-node-auth` stays available as a deprecated alias that depends on `@awesome-lang-auth/node`.
+- Migration: replace the dependency (`npm uninstall awesome-node-auth && npm install @awesome-lang-auth/node`) and change the import specifier from `'awesome-node-auth'` to `'@awesome-lang-auth/node'`, in `import` and `require()` alike.
+- The repository moved to the `awesome-lang-auth` GitHub organization: <https://github.com/awesome-lang-auth/awesome-node-auth>. `repository` and `bugs` in `package.json` point there.
+- README, README.detailed, the examples, the demos and the doc comments use the new package name; the demos depend on `@awesome-lang-auth/node` `^1.10.1`.
+- The publish workflow skips `npm publish` when the `package.json` version is already on the registry.
+
+---
+
 ## [1.10.0] — 2026-09-25
 
 ### Added
@@ -411,3 +422,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 | 1.8.x | 2026-03-30–04-18 | Multi-channel notify, session-based admin auth, admin UI improvements |
 | 1.9.0 | 2026-04-29 | IdP mode (RS256 + JWKS), Resource Server middleware, Flutter client support |
 | 1.10.0 | 2026-09-25 | `buildAllRouters()`, admin promote/revoke, automatic event publication, 2FA and admin token hardening |
+| 1.10.1 | 2026-09-25 | Published as `@awesome-lang-auth/node`; repository moved to the `awesome-lang-auth` organization |

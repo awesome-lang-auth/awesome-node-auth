@@ -5,7 +5,7 @@
  * that uses the App Router.
  *
  * Installation (in your Next.js project):
- *   npm install awesome-node-auth
+ *   npm install @awesome-lang-auth/node
  *
  * NOTE: This file is intentionally NOT compiled by tsconfig.json (it lives in
  * examples/, which is excluded). Treat it as reference documentation.
@@ -321,7 +321,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 //
 //   import { cookies } from 'next/headers';
 //   import { redirect } from 'next/navigation';
-//   import { TokenService } from 'awesome-node-auth';
+//   import { TokenService } from '@awesome-lang-auth/node';
 //   import { authConfig } from '../../lib/auth';
 //
 //   export default async function DashboardPage() {
@@ -346,7 +346,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 // pages/api/auth/[...auth].ts
 //
 //   import type { NextApiRequest, NextApiResponse } from 'next';
-//   import { createAuthRouter } from 'awesome-node-auth';
+//   import { createAuthRouter } from '@awesome-lang-auth/node';
 //   import { authConfig, userStore, linkedAccountsStore, settingsStore } from '../../../lib/auth';
 //
 //   const router = createAuthRouter(userStore, authConfig, { linkedAccountsStore, settingsStore });
