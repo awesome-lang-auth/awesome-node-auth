@@ -54,8 +54,11 @@ export function _resetEphemeralWarning(): void {
 
 export class TokenService {
   generateTokenPair(payload: AccessTokenPayload, config: AuthConfig): TokenPair {
-    // Exclude jwt-managed fields; spread remaining claims (including any custom ones)
-    const { iat, exp, ...claims } = payload;
+    // Exclude jwt-managed fields; spread remaining claims (including any custom ones).
+    // `purpose` is reserved for tokens that are not sessions (the 2FA step-up
+    // token, the admin console token): drop it, so a custom claim from
+    // `buildTokenPayload` can never mark a session token as one of them.
+    const { iat, exp, [TOKEN_PURPOSE_CLAIM]: _purpose, ...claims } = payload;
     const accessToken = jwt.sign(
       claims,
       config.accessTokenSecret,

@@ -166,6 +166,40 @@ describe('2FA step-up token', () => {
     expect(ping.status).toBe(200);
   });
 
+  it('a purpose claim from buildTokenPayload is dropped from session tokens, so they cannot pass as the admin console token', async () => {
+    const plain = await userStore.create({
+      email: 'plain@example.com',
+      password: await new PasswordService().hash('plain password'),
+    });
+    const hookApp = express();
+    hookApp.use(express.json());
+    hookApp.use(new AuthConfigurator(
+      { ...config, buildTokenPayload: () => ({ purpose: 'admin', isRoot: true, tenant: 't1' }) },
+      userStore,
+    ).buildAllRouters({ admin: { accessPolicy: 'is-admin-flag', silent: true } }));
+
+    const login = await request(hookApp)
+      .post('/auth/login')
+      .set('X-Auth-Strategy', 'bearer')
+      .send({ email: 'plain@example.com', password: 'plain password' });
+    expect(login.status).toBe(200);
+    const { accessToken, refreshToken } = login.body as { accessToken: string; refreshToken: string };
+
+    for (const token of [accessToken, refreshToken]) {
+      const claims = jwt.decode(token) as Record<string, unknown>;
+      expect(claims.purpose).toBeUndefined();
+      expect(claims.sub).toBe(plain.id);
+      expect(claims.tenant).toBe('t1');
+    }
+
+    // Judged as the non-admin user it is, not as a root console session.
+    const ping = await request(hookApp).get('/auth/admin/api/ping').set('Authorization', `Bearer ${accessToken}`);
+    expect(ping.status).toBe(403);
+    // Still a working application session.
+    const me = await request(hookApp).get('/auth/me').set('Authorization', `Bearer ${accessToken}`);
+    expect(me.status).toBe(200);
+  });
+
   it('the full TOTP flow still works in cookie mode', async () => {
     const tempToken = await passwordOnlyLogin();
     const verify = await request(app)

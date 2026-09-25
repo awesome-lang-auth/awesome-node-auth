@@ -3025,7 +3025,7 @@ The table below shows the default claims:
 |isTotpEnabled |user.isTotpEnabled??'false' |
 
 If you want to include additional user information such as `firstName`, `lastName`, or `phoneNumber` into the payload, you must explicitly return them in the `buildTokenPayload` callback shown above. 
-Do not return a `purpose` claim: the library uses it to mark tokens that are not sessions (`purpose: '2fa'` on the 2FA `tempToken`), and an access token that carries such a value is refused.
+Do not return a `purpose` claim: the library uses it to mark tokens that are not sessions (`purpose: '2fa'` on the 2FA `tempToken`, `purpose: 'admin'` on the admin console token), so it drops a `purpose` returned here from the access and refresh tokens.
 Any data you inject via this callback becomes automatically available directly inside the JWT (when using Bearer tokens) and is returned seamlessly as part of the JSON profile response on the `/auth/me` endpoint (when using cookie-based access).
 ## User Metadata
 
