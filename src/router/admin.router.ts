@@ -239,7 +239,7 @@ function adminActorId(res: Response): string | undefined {
  * Refuse a request whose body is not `application/json` with `415`.
  *
  * For admin mutations that need no body field to grant a privilege (such as
- * `POST /users/:id/promote`): an HTML form or a `text/plain` POST is a CORS
+ * `POST /api/users/:id/promote` and its alias): an HTML form or a `text/plain` POST is a CORS
  * "simple" request that a browser sends cross-site without a preflight, an
  * `application/json` one is not.  Every route that grants admin access this
  * way must use this check.
@@ -1069,7 +1069,10 @@ export function createAdminRouter(
     }
   });
 
-  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, async (req: Request, res: Response) => {
+  // POST /admin/api/users/:id/promote — grant admin access (role or isAdmin flag).
+  // POST /admin/users/:id/promote is the deprecated alias without `/api`, with
+  // the same chain.  requireJsonBody is the CSRF defence of both (see above).
+  const promoteHandler: RequestHandler = async (req: Request, res: Response) => {
     const userId = req.params['id'] as string;
     const method = (req.body as { method?: 'flag' | 'role' } | undefined)?.method ?? 'role';
     try {
@@ -1102,7 +1105,10 @@ export function createAdminRouter(
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
-  });
+  };
+  router.post('/api/users/:id/promote', ...rateLimiter, guard, requireJsonBody, promoteHandler);
+  /** @deprecated Use `POST /api/users/:id/promote`; kept as an alias with the same guard and behaviour. */
+  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, promoteHandler);
 
   // ---- User ↔ Tenant assignment (from user panel) --------------------------
 

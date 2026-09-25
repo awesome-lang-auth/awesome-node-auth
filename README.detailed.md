@@ -142,7 +142,7 @@ export class MyUserStore implements IUserStore {
   /**
    * Optional. Apply a partial update to the user record.
    * Required for: `promoteToAdmin` / `revokeAdmin` with `method: 'flag'` and
-   * `POST /admin/users/:id/promote` with `{ "method": "flag" }` (sets `isAdmin`).
+   * `POST /admin/api/users/:id/promote` with `{ "method": "flag" }` (sets `isAdmin`).
    */
   async update(userId: string, patch: Partial<BaseUser>): Promise<void> { /* ... */ }
 }
@@ -2860,14 +2860,14 @@ await auth.revokeAdmin(userId, { method: 'both', rbacStore });
 
 Both helpers throw on a `method` that is not in the table, and when the method needs a store that is missing (`rbacStore` for `'role'`/`'both'`, `IUserStore.update` for `'flag'`/`'both'`); `revokeAdmin` checks this before changing anything, so when a required store is missing nothing changes and no event is published. The two stores cannot be changed atomically: a store error part-way through `'both'` (for example `removeRoleFromUser` failing after the flag was cleared) can leave a partial state; the error reaches the caller and no event is published. `createRole('admin')` runs on every role-based promotion, so `IRolesPermissionsStore.createRole` must tolerate an existing role. With an `eventBus` on the configurator, `promoteToAdmin` publishes `ROLE_ASSIGNED` and `revokeAdmin` publishes `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
 
-Over HTTP, the admin router exposes the same promotion as `POST /admin/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
+Over HTTP, the admin router exposes the same promotion as `POST /admin/api/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
 
 ### Admin router options — `eventBus`, `rateLimiter`, `silent`
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `eventBus` | `AuthEventBus` | Publishes `ROLE_ASSIGNED` / `ROLE_REVOKED` from the role and promote endpoints. Defaulted by `buildAllRouters()` |
-| `rateLimiter` | `RequestHandler` | Applied to sensitive admin mutations — currently `POST /admin/users/:id/promote` |
+| `rateLimiter` | `RequestHandler` | Applied to sensitive admin mutations — currently `POST /admin/api/users/:id/promote` and its deprecated alias `POST /admin/users/:id/promote` |
 | `silent` | `boolean` | Suppresses the startup `INFO` line (on `stderr`) listing the enabled and disabled admin tabs |
 
 ### Admin REST API
@@ -2884,7 +2884,8 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 | `GET` | `/admin/api/users/:id/roles` | List roles assigned to a user |
 | `POST` | `/admin/api/users/:id/roles` | Assign a role to a user (`{ role, tenantId? }`) |
 | `DELETE` | `/admin/api/users/:id/roles/:role` | Remove a role from a user |
-| `POST` | `/admin/users/:id/promote` | Promote a user to admin (`{ method?: 'role' \| 'flag' }`, default `'role'`) — **no `/api` segment**, see note below |
+| `POST` | `/admin/api/users/:id/promote` | Promote a user to admin (`{ method?: 'role' \| 'flag' }`, default `'role'`), see note below |
+| `POST` | `/admin/users/:id/promote` | **Deprecated** alias of `/admin/api/users/:id/promote`, with the same guard, rate limiter and behaviour |
 | `GET` | `/admin/api/users/:id/metadata` | Get user metadata |
 | `PUT` | `/admin/api/users/:id/metadata` | Replace user metadata (full JSON body) |
 | `GET` | `/admin/api/users/:id/linked-accounts` | List OAuth accounts linked to a user _(requires `linkedAccountsStore`)_ |
@@ -2919,7 +2920,7 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 | `GET` | `/admin/api/templates/ui` | List all custom UI translations — requires `templateStore` |
 | `POST` | `/admin/api/templates/ui` | Update UI translations for a page — requires `templateStore` |
 
-> **`POST /admin/users/:id/promote`** is registered **without** the `/api` segment used by every other admin REST endpoint (mounted through `buildAllRouters()` the full path is `/auth/admin/users/:id/promote`). It runs the admin `rateLimiter` (when set) and the admin guard, and requires a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
+> **`POST /admin/api/users/:id/promote`** (mounted through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`). The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
 > - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
 >
@@ -3371,7 +3372,7 @@ An OAuth login that stops at the 2FA challenge does not publish `AUTH_OAUTH_SUCC
 |---|---|---|
 | `POST /api/users/:id/roles` | `ROLE_ASSIGNED` | `{ role, actorId }` (`tenantId` on the payload when given) |
 | `DELETE /api/users/:id/roles/:role` | `ROLE_REVOKED` | `{ role, actorId }` |
-| `POST /users/:id/promote` | `ROLE_ASSIGNED` | `{ role: 'admin', method, actorId }` |
+| `POST /api/users/:id/promote` (and the deprecated `POST /users/:id/promote`) | `ROLE_ASSIGNED` | `{ role: 'admin', method, actorId }` |
 
 `userId` is the user whose roles changed; `actorId` is the id of the admin the `accessPolicy` guard authorized for the request (absent with `accessPolicy: 'open'` or the legacy `adminSecret`, which identify no user).
 
