@@ -44,9 +44,12 @@ const auth = new AuthConfigurator(
 
 app.use(auth.buildAllRouters({
   admin: {
-    accessPolicy: 'first-user',
+    accessPolicy: 'is-admin-flag', // admin panel for users with isAdmin: true
   },
 })); // mounts /auth/* and /auth/admin/*
+
+// Grant the admin panel from a seed script or CLI task (sets isAdmin; needs IUserStore.update):
+//   await auth.promoteToAdmin(userId, { method: 'flag' });
 
 app.get('/protected', auth.middleware(), (req, res) => {
   res.json({ user: req.user });
@@ -163,7 +166,7 @@ Full configuration reference → [README.detailed.md § Configuration](./README.
 
 Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or the legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`.
 
-| Store / Option | Unlocks |
+| `admin` option (`AdminOptions`) | Unlocks |
 |---|---|
 | `sessionStore` | Sessions tab |
 | `rbacStore` | Roles & Permissions tab |
@@ -174,14 +177,14 @@ Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router an
 | `apiKeyStore` | 🔑 API Keys tab |
 | `webhookStore` | 🔗 Webhooks tab |
 | `templateStore` | Email & UI tab |
-| `uploadDir` + `uploadBaseUrl` | Logo upload in branding |
+| `uploadDir` (optionally `uploadBaseUrl`) | Logo upload in branding |
 
 ---
 
 ## Two login endpoints, two audiences
 
-- `/auth/ui/login` — end-user login for your application
-- `/auth/admin/login` — admin panel login
+- `/auth/ui/login` — end-user login for your application (built-in UI, `ui: { enabled: true }`)
+- `/auth/admin/` — admin panel for operators (its sign-in form posts to `/auth/admin/login`)
 
 They are intentionally different flows. If you mount the admin UI for operators, keep linking end users to `/auth/ui/login`.
 
