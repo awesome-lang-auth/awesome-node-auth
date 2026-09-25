@@ -1,5 +1,5 @@
 // ============================================================
-// Express + MongoDB integration — awesome-node-auth@1.10.10
+// Express + MongoDB integration — @awesome-lang-auth/node@^1.10.1
 // Advanced demo: full feature set (CSRF, CORS, email verification,
 // OAuth Google + GitHub) backed by a real MongoDB database.
 //
@@ -13,10 +13,10 @@
 import express from 'express';
 import { MongoClient } from 'mongodb';
 import rateLimit from 'express-rate-limit';
-import { AuthConfigurator, PasswordService, AuthError, MemoryTemplateStore } from 'awesome-node-auth';
-import type { AuthConfig } from 'awesome-node-auth';
-import { createAdminRouter } from 'awesome-node-auth';
-import type { AdminOptions } from 'awesome-node-auth';
+import { AuthConfigurator, PasswordService, AuthError, MemoryTemplateStore } from '@awesome-lang-auth/node';
+import type { AuthConfig } from '@awesome-lang-auth/node';
+import { createAdminRouter } from '@awesome-lang-auth/node';
+import type { AdminOptions } from '@awesome-lang-auth/node';
 
 // ---- 1. IUserStore implementation (MongoDB) ----
 import { MongoDbUserStore } from './user-store';

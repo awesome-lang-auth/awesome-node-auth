@@ -802,6 +802,8 @@ export function createAdminRouter(
     path.resolve(_dirname, '../../ui-assets'),        // alternate dist
     path.resolve(_dirname, '../ui/assets'),           // src
     path.resolve(_dirname, '../../src/ui/assets'),    // alternate src
+    path.resolve(process.cwd(), 'node_modules/@awesome-lang-auth/node/dist/ui-assets'),
+    path.resolve(process.cwd(), 'node_modules/@awesome-lang-auth/node/src/ui/assets'),
     path.resolve(process.cwd(), 'node_modules/awesome-node-auth/dist/ui-assets'),
     path.resolve(process.cwd(), 'node_modules/awesome-node-auth/src/ui/assets'),
   ];

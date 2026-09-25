@@ -5,7 +5,7 @@
  * connecting to a database.
  */
 
-import { AuthConfigurator, AuthConfig, PasswordService, AuthError, createAdminRouter, MemoryTemplateStore } from 'awesome-node-auth';
+import { AuthConfigurator, AuthConfig, PasswordService, AuthError, createAdminRouter, MemoryTemplateStore } from '@awesome-lang-auth/node';
 import { InMemoryUserStore } from './user-store';
 
 export const authConfig: AuthConfig = {

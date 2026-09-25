@@ -3,7 +3,7 @@
  * Drop-in replacement for any IUserStore implementation.
  */
 
-import { IUserStore, ILinkedAccountsStore, ISettingsStore, LinkedAccount, AuthSettings } from 'awesome-node-auth';
+import { IUserStore, ILinkedAccountsStore, ISettingsStore, LinkedAccount, AuthSettings } from '@awesome-lang-auth/node';
 
 // ── BaseUser fields the demo uses ─────────────────────────────────────────────
 

@@ -6,7 +6,7 @@
  * @example
  * ```typescript
  * // Mongoose example
- * import { IPendingLink } from 'awesome-node-auth';
+ * import { IPendingLink } from '@awesome-lang-auth/node';
  * import { Schema, model, Document } from 'mongoose';
  *
  * interface IPendingLinkDoc extends IPendingLink, Document {}
@@ -39,7 +39,7 @@ export interface IPendingLink {
  *
  * @example
  * ```typescript
- * import { IPendingLinkStore } from 'awesome-node-auth';
+ * import { IPendingLinkStore } from '@awesome-lang-auth/node';
  *
  * export class InMemoryPendingLinkStore implements IPendingLinkStore {
  *   private store = new Map<string, { providerAccountId: string }>();

@@ -12,8 +12,8 @@
  *
  * @example
  * ```ts
- * import { expressAdapter } from 'awesome-node-auth/adapters/express';
- * import type { AuthRequestHandler } from 'awesome-node-auth';
+ * import { expressAdapter } from '@awesome-lang-auth/node';
+ * import type { AuthRequestHandler } from '@awesome-lang-auth/node';
  *
  * const myMiddleware: AuthRequestHandler = (req, res, next) => {
  *   // logic here

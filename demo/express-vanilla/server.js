@@ -24,7 +24,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const os = require('os');
-const { AuthConfigurator, createAdminRouter, buildUiRouter, PasswordService, MemoryTemplateStore } = require('awesome-node-auth');
+const { AuthConfigurator, createAdminRouter, buildUiRouter, PasswordService, MemoryTemplateStore } = require('@awesome-lang-auth/node');
 
 const passwordService = new PasswordService();
 
@@ -203,7 +203,7 @@ app.use((req, res, next) => {
 
 const userStore = new InMemoryUserStore();
 
-/** @type {import('awesome-node-auth').AuthConfig} */
+/** @type {import('@awesome-lang-auth/node').AuthConfig} */
 /**
  * SECURITY NOTE — These secrets are intentionally hardcoded for the demo only.
  * In production you MUST load them from environment variables and never commit
@@ -239,13 +239,13 @@ app.use('/auth', auth.router({
     const email    = typeof data.email    === 'string' ? data.email.trim()    : '';
     const password = typeof data.password === 'string' ? data.password.trim() : '';
     if (!email || !password) {
-      const { AuthError } = require('awesome-node-auth');
+      const { AuthError } = require('@awesome-lang-auth/node');
       throw new AuthError('email and password are required', 'VALIDATION_ERROR', 400);
     }
     // Reject duplicate email
     const existing = await userStore.findByEmail(email);
     if (existing) {
-      const { AuthError } = require('awesome-node-auth');
+      const { AuthError } = require('@awesome-lang-auth/node');
       throw new AuthError('Email already registered', 'EMAIL_EXISTS', 409);
     }
     const hash = await passwordService.hash(password);

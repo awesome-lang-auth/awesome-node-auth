@@ -7,8 +7,8 @@
  * `Request`/`Response` objects satisfy them without any cast.
  *
  * Non-Express adapters (Fastify, Koa, Hapi, …) can implement these interfaces
- * or wrap their native objects with the helpers exported from
- * `awesome-node-auth/adapters/express` and `awesome-node-auth/adapters/fastify`.
+ * or wrap their native objects with the `expressAdapter` / `fastifyAdapter`
+ * helpers exported from `@awesome-lang-auth/node`.
  *
  * @since 1.7.0
  */
@@ -107,7 +107,7 @@ export type AuthNextFunction = (err?: any) => void;
  *
  * @example
  * ```ts
- * import type { AuthRequestHandler } from 'awesome-node-auth';
+ * import type { AuthRequestHandler } from '@awesome-lang-auth/node';
  *
  * // Write middleware once — works on Express, Fastify, Koa, …
  * const requestLogger: AuthRequestHandler = (req, _res, next) => {
@@ -119,7 +119,7 @@ export type AuthNextFunction = (err?: any) => void;
  * app.use(requestLogger);
  *
  * // Mount on Fastify via adapter:
- * import { fastifyAdapter } from 'awesome-node-auth/adapters/fastify';
+ * import { fastifyAdapter } from '@awesome-lang-auth/node';
  * fastify.addHook('preHandler', fastifyAdapter(requestLogger));
  * ```
  *

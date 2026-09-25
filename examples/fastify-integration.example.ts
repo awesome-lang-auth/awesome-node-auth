@@ -4,7 +4,7 @@
  * Demonstrates how to integrate awesome-node-auth inside a Fastify application.
  *
  * Installation (in your Fastify project):
- *   npm install awesome-node-auth fastify
+ *   npm install @awesome-lang-auth/node fastify
  *
  * NOTE: This file is intentionally NOT compiled by tsconfig.json (it lives in
  * examples/, which is excluded). Treat it as reference documentation.

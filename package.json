@@ -1,6 +1,6 @@
 {
-  "name": "awesome-node-auth",
-  "version": "1.10.0",
+  "name": "@awesome-lang-auth/node",
+  "version": "1.10.1",
   "description": "Database-agnostic JWT authentication and communication bus for Node.js",
   "main": "dist/index.js",
   "scripts": {
@@ -11,13 +11,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nik2208/awesome-node-auth.git"
+    "url": "git+https://github.com/awesome-lang-auth/awesome-node-auth.git"
   },
   "keywords": [
     "auth",
     "node",
     "nodejs",
     "awesome-node-auth",
+    "awesome-lang-auth",
     "authentication",
     "middleware",
     "express-auth",
@@ -47,7 +48,7 @@
   "license": "MIT",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/nik2208/awesome-node-auth/issues"
+    "url": "https://github.com/awesome-lang-auth/awesome-node-auth/issues"
   },
   "homepage": "https://www.awesomenodeauth.com/",
   "dependencies": {
@@ -81,5 +82,8 @@
   ],
   "overrides": {
     "rollup": "^4.59.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

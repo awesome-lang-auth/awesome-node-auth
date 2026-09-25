@@ -17,7 +17,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { AuthConfigurator, createAdminRouter, PasswordService, AuthError, type AuthConfig } from 'awesome-node-auth';
+import { AuthConfigurator, createAdminRouter, PasswordService, AuthError, type AuthConfig } from '@awesome-lang-auth/node';
 
 // ── Inline in-memory store (same as api-server.js) ────────────────────────────
 // In production replace with a real database store.

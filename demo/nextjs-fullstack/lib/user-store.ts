@@ -3,7 +3,7 @@
  * Swap this for a real database store in production.
  */
 
-import type { IUserStore, ILinkedAccountsStore, ISettingsStore, LinkedAccount, AuthSettings } from 'awesome-node-auth';
+import type { IUserStore, ILinkedAccountsStore, ISettingsStore, LinkedAccount, AuthSettings } from '@awesome-lang-auth/node';
 
 export interface DemoUser {
   id: string;
