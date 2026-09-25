@@ -3151,18 +3151,25 @@ export class MySessionStore implements ISessionStore {
 
 ### Hybrid Caching (L1/L2)
 
-For `checkOn: 'allcalls'`, it is highly recommended to use a caching layer to avoid database bottlenecks:
+For `checkOn: 'allcalls'`, it is highly recommended to put a caching layer in front of your session store to avoid database bottlenecks. The library does not ship caching stores: any object that implements `ISessionStore` works, so you can layer your own.
 
-- **L1 (In-Process)**: Use `L1CachedSessionStore` decorator for ultra-fast local lookups (5-10s TTL).
-- **L2 (Distributed)**: Use `RedisSessionStore` for instant revocation across a cluster.
+- **L1 (in-process)**: a decorator around your store that caches `getSession` results for a few seconds (5–10 s TTL) and forwards every other call. The auth middleware also calls `updateSessionLastActive` on every request, so the decorator can batch or throttle it. An L1 cache delays a revocation by up to its TTL.
+- **L2 (distributed)**: a Redis-backed `ISessionStore`, so a revocation is visible to every instance of a cluster.
+
+The session store is a router and middleware option; the third `AuthConfigurator` argument only accepts `{ eventBus }`:
 
 ```typescript
-import { RedisSessionStore, L1CachedSessionStore } from 'awesome-node-auth';
+// MyRedisSessionStore and MyL1CachedSessionStore are your own ISessionStore implementations.
+const redisStore = new MyRedisSessionStore(new Redis());
+const sessionStore = new MyL1CachedSessionStore(redisStore, { ttlMs: 5000 });
 
-const redisStore = new RedisSessionStore(new Redis());
-const sessionStore = new L1CachedSessionStore(redisStore, { ttlMs: 5000 });
+const auth = new AuthConfigurator(
+  { ...config, session: { checkOn: 'allcalls' } },
+  userStore,
+);
 
-const auth = new AuthConfigurator(config, userStore, { sessionStore });
+app.use('/auth', auth.router({ sessionStore }));                // session list, refresh check, cleanup
+app.get('/api/data', auth.middleware({ sessionStore }), handler); // session checked on every request
 ```
 
 ## Multi-Tenancy

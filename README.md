@@ -147,15 +147,25 @@ GET    /.well-known/jwks.json                                                   
 ## Optional Stores Snapshot
 
 ```typescript
-const auth = new AuthConfigurator(config, userStore, {
-  sessionStore,      // ISessionStore       — stateful sessions + device management
-  metadataStore,     // IUserMetadataStore  — arbitrary per-user key/value pairs
-  rbacStore,         // IRolesPermissionsStore
-  tenantStore,       // ITenantStore
-  pendingLinkStore,  // IPendingLinkStore   — OAuth account-linking conflicts
-  templateStore,     // ITemplateStore      — dynamic email templates + UI i18n (v1.6)
-});
+const auth = new AuthConfigurator(
+  { ...config, templateStore }, // ITemplateStore — dynamic email templates + UI i18n (v1.6), part of AuthConfig
+  userStore,
+  { eventBus },                 // optional; the third argument only accepts { eventBus }
+);
+
+app.use('/auth', auth.router({
+  sessionStore,        // ISessionStore        — stateful sessions + device management
+  metadataStore,       // IUserMetadataStore   — arbitrary per-user key/value pairs
+  rbacStore,           // IRolesPermissionsStore
+  tenantStore,         // ITenantStore
+  linkedAccountsStore, // ILinkedAccountsStore — several OAuth providers per user
+  pendingLinkStore,    // IPendingLinkStore    — OAuth account-linking conflicts (with linkedAccountsStore)
+}));
+
+app.get('/protected', auth.middleware(), handler); // picks up the sessionStore passed to router()
 ```
+
+With `buildAllRouters()`, pass the same stores as `auth: { … }`; the admin panel takes its own in `admin: { … }` (see [Admin UI](#admin-ui)).
 
 Full configuration reference → [README.detailed.md § Configuration](./README.detailed.md#configuration)
 
