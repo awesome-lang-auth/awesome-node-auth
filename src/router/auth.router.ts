@@ -499,7 +499,9 @@ export function createAuthRouter(
     refreshTokenPath: config.cookieOptions?.refreshTokenPath ?? `${options.apiPrefix || config.apiPrefix || '/auth'}/refresh`
   };
 
-  const authMiddleware = createAuthMiddleware(config);
+  // With a session store, `session.checkOn: 'allcalls'` checks revocation on
+  // the router's own protected routes too.
+  const authMiddleware = createAuthMiddleware(config, options.sessionStore);
   const localStrategy = new LocalStrategy(userStore, passwordService);
   const rl = options.rateLimiter ? [options.rateLimiter] : [];
   const allowedOrigins = buildAllowedOrigins(config, options);
@@ -591,7 +593,7 @@ export function createAuthRouter(
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-CSRF-Token,X-Api-Key');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-CSRF-Token,X-Api-Key,X-Auth-Strategy');
       }
       // Ensure caches/proxies do not serve a cached response with the wrong origin
       res.setHeader('Vary', 'Origin');
@@ -635,18 +637,14 @@ export function createAuthRouter(
         // If 2FA is required but the account has no configured method at all,
         // tell the client to set one up first.
         if (available2faMethods.length === 0) {
-          const tempToken = tokenService.generateTokenPair(
-            buildPayload(user, config),
-            { ...config, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-          ).accessToken;
+          const tempToken = tokenService.generateTempToken(buildPayload(user, config), config);
           res.status(403).json({ requires2FASetup: true, tempToken, code: '2FA_SETUP_REQUIRED' });
           return;
         }
 
-        const tempToken = tokenService.generateTokenPair(
-          buildPayload(user, config),
-          { ...config, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-        ).accessToken;
+        // The step-up token is accepted by the 2FA completion endpoints only,
+        // never as a session (see TokenService.generateTempToken).
+        const tempToken = tokenService.generateTempToken(buildPayload(user, config), config);
         res.json({ requiresTwoFactor: true, tempToken, available2faMethods });
         return;
       }
@@ -672,19 +670,41 @@ export function createAuthRouter(
   // We don't use the standard authMiddleware here because we want to clear cookies
   // even if the token is expired or invalid.
   if (!isResourceServer) router.post('/logout', ...rl, async (req: Request, res: Response, next: NextFunction) => {
-    // Try to get the user from token, but don't block if it fails
-    const token = tokenService.extractTokenFromCookie(req, 'accessToken');
+    // Try to get the user from the access token, but don't block if it fails.
+    // Like auth.middleware(): the Authorization: Bearer header (bearer clients)
+    // first, then the accessToken cookie.
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.substring(7)
+      : tokenService.extractTokenFromCookie(req, 'accessToken');
     if (token) {
       try {
         const payload = tokenService.verifyAccessToken(token, config);
         req.user = payload;
-        
+
         // Revoke stateful session
         if (options.sessionStore && payload.sid) {
           await options.sessionStore.revokeSession(payload.sid).catch(() => {});
         }
       } catch (err) {
         // Token dead, but we proceed to clear it
+      }
+    }
+    // A bearer client may send its refresh token in the body, as for /refresh.
+    // It ends the session only while it is the user's current refresh token.
+    const bodyRefreshToken = (req.body as { refreshToken?: unknown } | undefined)?.refreshToken;
+    if (typeof bodyRefreshToken === 'string' && bodyRefreshToken) {
+      try {
+        const payload = tokenService.verifyRefreshToken(bodyRefreshToken, config);
+        const user = await userStore.findById(payload.sub);
+        if (user && user.refreshToken === bodyRefreshToken) {
+          if (options.sessionStore && payload.sid) {
+            await options.sessionStore.revokeSession(payload.sid).catch(() => {});
+          }
+          if (!req.user) req.user = payload;
+        }
+      } catch {
+        // Invalid, expired or already rotated: nothing to revoke
       }
     }
     next();
@@ -962,7 +982,7 @@ export function createAuthRouter(
   router.post('/2fa/verify', ...rl, async (req: Request, res: Response) => {
     try {
       const { tempToken, totpCode } = req.body as { tempToken: string; totpCode: string };
-      const payload = tokenService.verifyAccessToken(tempToken, config);
+      const payload = tokenService.verifyTempToken(tempToken, config);
       const user = await userStore.findById(payload.sub);
       if (!user || !user.totpSecret) {
         res.status(400).json({ error: 'User not found or 2FA not set up' });
@@ -1210,9 +1230,9 @@ export function createAuthRouter(
           res.status(400).json({ error: 'tempToken is required for 2FA mode', code: 'TEMP_TOKEN_REQUIRED' });
           return;
         }
-        let payload: ReturnType<typeof tokenService.verifyAccessToken>;
+        let payload: ReturnType<typeof tokenService.verifyTempToken>;
         try {
-          payload = tokenService.verifyAccessToken(tempToken, config);
+          payload = tokenService.verifyTempToken(tempToken, config);
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
           return;
@@ -1258,9 +1278,9 @@ export function createAuthRouter(
           return;
         }
         // Validate the temp token (proves the user already completed step 1 — password)
-        let tempPayload: ReturnType<typeof tokenService.verifyAccessToken>;
+        let tempPayload: ReturnType<typeof tokenService.verifyTempToken>;
         try {
-          tempPayload = tokenService.verifyAccessToken(tempToken, config);
+          tempPayload = tokenService.verifyTempToken(tempToken, config);
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
           return;
@@ -1326,7 +1346,7 @@ export function createAuthRouter(
           return;
         }
         try {
-          const payload = tokenService.verifyAccessToken(tempToken, config);
+          const payload = tokenService.verifyTempToken(tempToken, config);
           resolvedUserId = payload.sub;
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
@@ -1389,7 +1409,7 @@ export function createAuthRouter(
           return;
         }
         try {
-          const payload = tokenService.verifyAccessToken(tempToken, config);
+          const payload = tokenService.verifyTempToken(tempToken, config);
           resolvedUserId = payload.sub;
         } catch {
           res.status(401).json({ error: 'Invalid or expired temp token', code: 'INVALID_TEMP_TOKEN' });
@@ -1439,10 +1459,7 @@ export function createAuthRouter(
       if (hasTotpEnabled) available2faMethods.push('totp');
       if (user.phoneNumber && authConfig.sms) available2faMethods.push('sms');
       if (authConfig.email?.sendMagicLink || authConfig.email?.mailer) available2faMethods.push('magic-link');
-      const tempToken = tokenService.generateTokenPair(
-        buildPayload(user, authConfig),
-        { ...authConfig, accessTokenExpiresIn: '5m', refreshTokenExpiresIn: '5m' }
-      ).accessToken;
+      const tempToken = tokenService.generateTempToken(buildPayload(user, authConfig), authConfig);
       // For GET-based OAuth redirects always redirect to the 2FA page
       const methods = available2faMethods.join(',');
       res.redirect(`${redirectTo}/auth/2fa?tempToken=${encodeURIComponent(tempToken)}&methods=${encodeURIComponent(methods)}`);
@@ -1638,8 +1655,14 @@ export function createAuthRouter(
           res.status(500).json({ error: 'UserStore does not implement updateAccountLinkToken', code: 'NOT_IMPLEMENTED' });
           return;
         }
-        // Manual CSRF check (since we removed authMiddleware which usually handles it)
-        if (config.csrf?.enabled) {
+        // Same credential rule as auth.middleware(): an Authorization: Bearer
+        // header is the credential, and then the accessToken cookie is ignored.
+        const authHeader = req.headers['authorization'];
+        const bearerToken = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '') || null;
+        // Manual CSRF check (since we removed authMiddleware which usually handles it).
+        // Like the middleware, it applies to requests without a bearer
+        // credential: cookie-authenticated and anonymous (conflict-linking) calls.
+        if (config.csrf?.enabled && !bearerToken) {
           const cookie = tokenService.extractTokenFromCookie(req, 'csrf-token');
           const header = req.headers['x-csrf-token'];
           if (!cookie || !header || cookie !== header) {
@@ -1652,8 +1675,7 @@ export function createAuthRouter(
         }
         let userId: string | null = null;
         // Try to get userId from existing session (standard linking)
-        const rawToken = tokenService.extractTokenFromCookie(req, 'accessToken') ||
-          (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].substring(7) : null);
+        const rawToken = bearerToken ?? tokenService.extractTokenFromCookie(req, 'accessToken');
         if (rawToken) {
           try {
             const payload = tokenService.verifyAccessToken(rawToken, config);

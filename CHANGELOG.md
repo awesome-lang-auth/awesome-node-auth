@@ -12,7 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 #### One-call mounting and admin bootstrap
 - **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`). `BuildAllRoutersOptions.admin` requires `accessPolicy` or a non-empty legacy `adminSecret`.
 - **`AuthConfigurator.promoteToAdmin()` / `revokeAdmin()`** — grant or remove admin access by role (`rbacStore`, the default) or by the `isAdmin` flag (`IUserStore.update`); `revokeAdmin` also accepts `method: 'both'`, which needs both stores. Both helpers throw on an unknown `method`, and a revocation checks its prerequisites first and throws before changing anything when a store is missing.
-- **`POST /users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). It requires a JSON body (`415` otherwise). Registered **without** the `/api` segment used by the other admin REST endpoints.
+- **`POST /api/users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). It requires a JSON body (`415` otherwise). The same route without `/api`, `POST /users/:id/promote`, is a deprecated alias (see Deprecated).
 - **`IUserStore.update?(userId, patch)`** — optional partial update, used by the flag-based promote/revoke.
 - **`AuthorizedAdminUser`** type — the admin guard loads the user's roles from `rbacStore` before evaluating `accessPolicy`; custom policies and `req.user` receive `BaseUser & { roles: string[] }`.
 - **`AdminOptions.eventBus`**, **`AdminOptions.rateLimiter`** (applied to the promote endpoint) and **`AdminOptions.silent`** (suppresses the startup tab summary).
@@ -25,8 +25,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - **`AuthEventNames.USER_EMAIL_CHANGED`** (`identity.user.email.changed`) — published by `POST /change-email/confirm` with `{ oldEmail, newEmail }`.
 - **`AuthToolsOptions.sseDistributor`** — custom `ISseDistributor` used by `AuthTools.notify()` instead of the built-in `SseManager` broadcaster. It receives a complete `StreamEvent` (`id`, `timestamp`, `topic`), so it can also feed an `SseManager` through `sseOptions.distributor`.
 
+#### Tokens
+- **`TokenService.generateTempToken()` / `verifyTempToken()`** — mint and verify the 2FA step-up token (`tempToken`, 5 minutes, `purpose: '2fa'` claim). `verifyTempToken` accepts only that token.
+
 #### Tests
 - `tests/dx-improvements.test.ts`, `tests/register-default-handler.test.ts` (`REGRESSION-REGISTER-MASS-ASSIGNMENT`) and `tests/router-events.test.ts` (event payloads), plus event-publication, built-in register handler and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
+- `tests/two-factor-token.test.ts` (`REGRESSION-2FA-ADMIN-GUARD`), `tests/admin-guard.test.ts` (`REGRESSION-ADMIN-GUARD-HTML-ACCEPT`, empty `adminSecret`), `tests/admin-promote.test.ts`, `tests/session-check.test.ts`, `tests/cookie-max-age.test.ts`, `tests/logout-bearer.test.ts`, `tests/link-request-csrf.test.ts` and `tests/cors-headers.test.ts`.
 
 #### Docs
 - README: `buildAllRouters()` quick start, "Admin UI" and "Two login endpoints, two audiences".
@@ -36,14 +40,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - OAuth logins set `loginProvider` to the provider name when the user record has none, so the `loginProvider` token claim is the provider instead of `'local'` (OAuth logins completed without a 2FA step).
 - The auth and admin routers write startup `INFO`/`WARN` lines to `stderr` (built-in register handler status when `defaultRegister` is set, enabled admin tabs); `AuthTools` warns when both `sse: true` and `sseDistributor` are set.
 - The admin panel sign-in form points end users to `/auth/ui/login`.
+- A `purpose` claim returned by `buildTokenPayload` is dropped from the access and refresh tokens: the library reserves it to mark tokens that are not sessions (`'2fa'`, `'admin'`).
 - `package-lock.json` refreshed within the existing dependency ranges.
+
+### Deprecated
+- `POST <admin>/users/:id/promote` (without `/api`) — alias of `POST <admin>/api/users/:id/promote`, with the same rate limiter, guard, JSON-body requirement and answers. Use the `/api` path.
 
 ### Removed
 - Documentation of the retired MCP server.
 
+### Fixed
+- `session.checkOn: 'allcalls'` now applies to the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...): the router passes its `sessionStore` to its access-token middleware, so a revoked session gets `401 SESSION_REVOKED` on the next call, and the session's last-active time is updated there.
+- The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes.
+- `POST /link-request` exempts requests with an `Authorization: Bearer` credential from its CSRF check, like `auth.middleware()`, and then identifies the user from the bearer token only. Cookie-authenticated and anonymous conflict-linking requests are still checked. (#4)
+- The auth router's CORS layer allows the `X-Auth-Strategy` request header, so browser apps on a listed origin can use bearer mode. (#5)
+- The Next.js demo's edge middleware and the edge-middleware snippet in `examples/nextjs-integration.example.ts` check the token expiry and refuse tokens that are not sessions (`purpose` claim), not only the signature.
+
 ### Security
 - `POST /register`: `config.email.sendWelcome(to, data)` no longer receives the plaintext `password` in `data`, with a custom `onRegister` as well as with the built-in handler.
 - The built-in register handler is opt-in (`defaultRegister`) and persists an allow-list of fields only.
+- The 2FA step-up token (`tempToken`) is no longer accepted as a session token: `auth.middleware()`, the admin router and every route behind them refuse it, and the 2FA completion endpoints accept only that token. The `tempToken` of a `2FA_SETUP_REQUIRED` answer no longer opens the enrolment routes. A 2FA challenge started before the upgrade must be restarted. Upgrading is recommended.
+- The admin console token issued by `POST <admin>/login` is accepted by the admin router only, not as an application session; the admin guard honours `isRoot` only on that token, and a `purpose` claim returned by `buildTokenPayload` is dropped from session tokens, so they cannot pass for it. The admin sign-in still checks the password only (no second factor): set `loginPath` to the application login to send operators through its 2FA flow, and restrict `POST <admin>/login`, which stays mounted, at the proxy.
+- A root or bootstrap admin console session (`rootUser` / `adminSecret` sign-in) issued by 1.9.0 is refused after the upgrade and needs one new sign-in; the panel shows its sign-in form, or redirects to `loginPath`. Other admin console sessions stay valid until they expire.
+- The session-based admin guard answers `401` to every unauthenticated request for the admin REST API, whatever its `Accept` header; only the HTML panel redirects to `loginPath` or shows its sign-in form, also when a validly signed token names no stored user.
+- `createAdminRouter()` throws a configuration error when `adminSecret` is present but empty and no `accessPolicy` is set, instead of mounting unprotected routes.
+- `POST /logout` also ends the session of bearer clients: it reads the access token from the `Authorization: Bearer` header and accepts the current refresh token in the body, then revokes the session and the stored refresh token. (#3)
 
 ---
 

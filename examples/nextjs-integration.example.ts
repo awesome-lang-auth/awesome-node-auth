@@ -282,6 +282,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const valid = await crypto.subtle.verify('HMAC', key, signature, data);
     if (!valid) throw new Error('Invalid signature');
 
+    // A valid signature is not enough: the token must be unexpired, and must
+    // not carry a `purpose` claim, which marks tokens that are not sessions
+    // (the 2FA step-up token and the admin console token).
+    const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(
+      atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')),
+      c => c.charCodeAt(0),
+    )));
+    if (typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now()) throw new Error('Expired');
+    if (payload.purpose !== undefined) throw new Error('Not a session token');
+
     return NextResponse.next();
   } catch {
     return NextResponse.redirect(new URL('/login', request.url));

@@ -142,7 +142,7 @@ export class MyUserStore implements IUserStore {
   /**
    * Optional. Apply a partial update to the user record.
    * Required for: `promoteToAdmin` / `revokeAdmin` with `method: 'flag'` and
-   * `POST /admin/users/:id/promote` with `{ "method": "flag" }` (sets `isAdmin`).
+   * `POST /admin/api/users/:id/promote` with `{ "method": "flag" }` (sets `isAdmin`).
    */
   async update(userId: string, patch: Partial<BaseUser>): Promise<void> { /* ... */ }
 }
@@ -358,7 +358,7 @@ When you mount `auth.router()`, the following endpoints are available:
 |--------|------|-------------|
 | `POST` | `/auth/register` | Register a new user _(optional — requires `onRegister` or `defaultRegister: true` in `RouterOptions`)_ |
 | `POST` | `/auth/login` | Login with email/password |
-| `POST` | `/auth/logout` | Logout and clear cookies |
+| `POST` | `/auth/logout` | Logout: revoke the session and the stored refresh token (access token from the `Authorization: Bearer` header or the cookie, and/or `{ refreshToken }` in the body), and clear cookies |
 | `POST` | `/auth/refresh` | Refresh access token |
 | `GET` | `/auth/me` | Get current user’s rich profile (protected) |
 | `POST` | `/auth/forgot-password` | Send password reset email |
@@ -407,6 +407,8 @@ app.use('/auth', createAuthRouter(userStore, config, {
 }));
 ```
 
+For a listed origin the router answers the preflight itself and allows the methods `GET,POST,PUT,PATCH,DELETE,OPTIONS`, credentials, and the request headers `Content-Type`, `Authorization`, `X-CSRF-Token`, `X-Api-Key` and `X-Auth-Strategy` (so a browser app on another origin can use [bearer mode](#bearer-token-strategy)).
+
 ### Dynamic Email Links (`siteUrl`)
 When the router receives a request from an allowed origin, it dynamically sets that origin as the base URL for any emails sent during that request (like magic links or password resets). This ensures users are redirected back to the exact frontend they initiated the request from.
 
@@ -430,7 +432,8 @@ const config: AuthConfig = {
   accessTokenSecret: process.env.ACCESS_TOKEN_SECRET!,
   refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET!,
 
-  // Token lifetimes (default: 15m / 7d)
+  // Token lifetimes (default: 15m / 7d). In cookie mode the accessToken and
+  // refreshToken cookies get the same lifetime as the token they carry.
   accessTokenExpiresIn: '15m',
   refreshTokenExpiresIn: '7d',
 
@@ -1697,6 +1700,7 @@ The library supports the **double-submit cookie** pattern for CSRF defence, whic
 1. When CSRF is enabled, the library sets a non-`HttpOnly` cookie called `csrf-token` alongside the JWT cookies after every login/refresh.
 2. Client-side JavaScript must read this cookie and send its value in the `X-CSRF-Token` header on every authenticated request.
 3. `createAuthMiddleware` validates that the header value matches the cookie value. If they don’t match, the request is rejected with **403 CSRF_INVALID**.
+4. Requests that carry an `Authorization: Bearer` credential are exempt, and on them the `accessToken` cookie is ignored. `POST /auth/link-request`, which runs its own check because it also serves anonymous conflict-linking, follows the same rule: bearer requests are exempt, cookie-authenticated and anonymous ones are checked.
 
 ### Enabling CSRF
 
@@ -1800,6 +1804,22 @@ const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await res
 The `X-Auth-Strategy: bearer` header is respected by all token-issuing endpoints: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/2fa/verify`, `POST /auth/magic-link/verify`, and `POST /auth/sms/verify`.
 
 > **Cookie users are unaffected** — if the `X-Auth-Strategy: bearer` header is absent, the library behaves exactly as before (HttpOnly cookies, optional CSRF protection).
+
+### Logout (bearer)
+
+`POST /auth/logout` ends the session named by the `Authorization: Bearer` access token and/or by a `refreshToken` in the JSON body (as for `/auth/refresh`): it revokes the stateful session (with a `sessionStore`) and clears the stored refresh token, so that refresh token is refused afterwards. A refresh token in the body counts only while it is the user's current one. Send both when you have them; an expired access token alone cannot identify the session.
+
+```typescript
+await fetch('/auth/logout', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: JSON.stringify({ refreshToken }),
+});
+// then drop both tokens on the client
+```
 
 ### Flutter / Android / iOS
 
@@ -2432,6 +2452,7 @@ When either condition is met, `POST /auth/login` responds with:
 ```
 
 - `tempToken` expires in **5 minutes** — use it immediately.
+- `tempToken` proves the password only, so it is **not** a session token: the 2FA completion endpoints (`POST /auth/2fa/verify`, and `/auth/magic-link/*` and `/auth/sms/*` with `mode='2fa'`) accept it, and nothing else does. `auth.middleware()`, the admin router and every route behind them refuse it, and the completion endpoints refuse an ordinary access token in its place. (It carries a `purpose: '2fa'` claim; access tokens carry no `purpose`.)
 - `available2faMethods` lists which 2FA channels are available to this specific user (see [Multi-channel 2FA](#multi-channel-2fa) below).
 
 If `require2FA` is set but **no** method is configured for the user (no TOTP, no phone, and no email sender), the server returns:
@@ -2440,7 +2461,7 @@ If `require2FA` is set but **no** method is configured for the user (no TOTP, no
 { "requires2FASetup": true, "tempToken": "...", "code": "2FA_SETUP_REQUIRED" }
 ```
 
-with HTTP **403** — prompt the user to set up at least one 2FA method.
+with HTTP **403** — prompt the user to set up at least one 2FA method. This `tempToken` cannot open the enrolment routes (`/auth/2fa/setup`, `/auth/add-phone`), which need a session: give the user a channel another way (configure an email sender for magic links, or SMS and a stored phone number), or clear `require2FA` for them.
 
 Show a code-entry UI and call `POST /auth/2fa/verify`:
 
@@ -2813,11 +2834,13 @@ app.use(auth.buildAllRouters({
 | Option | Type | Description |
 |--------|------|-------------|
 | `auth` | `RouterOptions` | Optional. Passed to `auth.router()`. The mount prefix is `auth.apiPrefix`, else `AuthConfig.apiPrefix`, else `'/auth'` (trailing slash removed). |
-| `admin` | `AdminOptions` | Required. Passed to `createAdminRouter()` with `jwtSecret` defaulting to `AuthConfig.accessTokenSecret` and `eventBus` defaulting to the configurator's `eventBus`. `apiPrefix` is always set to the resolved auth prefix. Set `accessPolicy` (or a non-empty legacy `adminSecret`) — the type requires one of them: without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`; an empty `adminSecret` counts as missing (`accessPolicy: 'open'` opts out explicitly). |
+| `admin` | `AdminOptions` | Required. Passed to `createAdminRouter()` with `jwtSecret` defaulting to `AuthConfig.accessTokenSecret` and `eventBus` defaulting to the configurator's `eventBus`. `apiPrefix` is always set to the resolved auth prefix. Set `accessPolicy` (or a non-empty legacy `adminSecret`) — the type requires one of them: without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr` (`accessPolicy: 'open'` opts out explicitly). Without `accessPolicy`, an `adminSecret` that is present but empty (`''`, or an unset environment variable) makes `createAdminRouter()` throw a configuration error. |
 
 `AuthConfiguratorOptions` (third constructor argument) currently holds one field, `eventBus?: AuthEventBus`. It is passed to `auth.router()` unless `RouterOptions.eventBus` is set, to the admin router by `buildAllRouters()`, and used by `promoteToAdmin()` / `revokeAdmin()` — see [Automatic event publication](#automatic-event-publication).
 
 Unless `loginPath` redirects elsewhere, the admin panel shows its own sign-in form for operators (served at `<apiPrefix>/admin/`, posting to `<apiPrefix>/admin/login`); end users sign in at `<apiPrefix>/ui/login`. Keep the two audiences separate.
+
+> **The admin sign-in form does not ask for a second factor.** `POST <apiPrefix>/admin/login` checks the email and password (or the root user / `adminSecret` bootstrap credentials) and nothing else, even for a user with 2FA enabled, and signs a 24-hour admin console token. That token carries `purpose: 'admin'`: the admin guard accepts it, and `auth.middleware()` and every other session check of the application refuse it, even though it is signed with the same secret. To send operators through 2FA, set `loginPath` to the application login (for example `'/auth/ui/login'`), which runs the full 2FA flow; the resulting session opens the panel (the hosted login then lands on `/`; reopen the panel). `POST <apiPrefix>/admin/login` stays mounted either way, so restrict it at the proxy (or mount the admin router behind a VPN or IP allow-list) if password-only access must be impossible. The built-in admin sign-in stores its token in the same `accessToken` cookie as the application, so an application page that signs the user out (for example after a failed refresh) also ends the console session. With `loginPath` the operator uses the application session instead; otherwise an admin `cookiePrefix` gives the console cookie its own name (the guard then reads only that cookie).
 
 ### Admin access policy and `AuthorizedAdminUser`
 
@@ -2856,20 +2879,20 @@ await auth.revokeAdmin(userId, { method: 'both', rbacStore });
 
 Both helpers throw on a `method` that is not in the table, and when the method needs a store that is missing (`rbacStore` for `'role'`/`'both'`, `IUserStore.update` for `'flag'`/`'both'`); `revokeAdmin` checks this before changing anything, so when a required store is missing nothing changes and no event is published. The two stores cannot be changed atomically: a store error part-way through `'both'` (for example `removeRoleFromUser` failing after the flag was cleared) can leave a partial state; the error reaches the caller and no event is published. `createRole('admin')` runs on every role-based promotion, so `IRolesPermissionsStore.createRole` must tolerate an existing role. With an `eventBus` on the configurator, `promoteToAdmin` publishes `ROLE_ASSIGNED` and `revokeAdmin` publishes `ROLE_REVOKED`, both with `data: { role: 'admin', method }`.
 
-Over HTTP, the admin router exposes the same promotion as `POST /admin/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
+Over HTTP, the admin router exposes the same promotion as `POST /admin/api/users/:id/promote` (see the note under [Admin REST API](#admin-rest-api)).
 
 ### Admin router options — `eventBus`, `rateLimiter`, `silent`
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `eventBus` | `AuthEventBus` | Publishes `ROLE_ASSIGNED` / `ROLE_REVOKED` from the role and promote endpoints. Defaulted by `buildAllRouters()` |
-| `rateLimiter` | `RequestHandler` | Applied to sensitive admin mutations — currently `POST /admin/users/:id/promote` |
+| `rateLimiter` | `RequestHandler` | Applied to sensitive admin mutations — currently `POST /admin/api/users/:id/promote` and its deprecated alias `POST /admin/users/:id/promote` |
 | `silent` | `boolean` | Suppresses the startup `INFO` line (on `stderr`) listing the enabled and disabled admin tabs |
 
 ### Admin REST API
 
 Most admin API endpoints require an active session where the user satisfies the `accessPolicy`.
-Unauthenticated requests will receive a 401 or be redirected.
+Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `Accept` header. Only the HTML panel (`GET /admin/`) treats an unauthenticated browser differently: it redirects to `loginPath` when one is set, and otherwise shows its own sign-in form. A validly signed token that names no stored user (no `sub`, a deleted user, or a root or bootstrap console session issued by 1.9.0) is treated as unauthenticated.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -2880,7 +2903,8 @@ Unauthenticated requests will receive a 401 or be redirected.
 | `GET` | `/admin/api/users/:id/roles` | List roles assigned to a user |
 | `POST` | `/admin/api/users/:id/roles` | Assign a role to a user (`{ role, tenantId? }`) |
 | `DELETE` | `/admin/api/users/:id/roles/:role` | Remove a role from a user |
-| `POST` | `/admin/users/:id/promote` | Promote a user to admin (`{ method?: 'role' \| 'flag' }`, default `'role'`) — **no `/api` segment**, see note below |
+| `POST` | `/admin/api/users/:id/promote` | Promote a user to admin (`{ method?: 'role' \| 'flag' }`, default `'role'`), see note below |
+| `POST` | `/admin/users/:id/promote` | **Deprecated** alias of `/admin/api/users/:id/promote`, with the same guard, rate limiter and behaviour |
 | `GET` | `/admin/api/users/:id/metadata` | Get user metadata |
 | `PUT` | `/admin/api/users/:id/metadata` | Replace user metadata (full JSON body) |
 | `GET` | `/admin/api/users/:id/linked-accounts` | List OAuth accounts linked to a user _(requires `linkedAccountsStore`)_ |
@@ -2915,7 +2939,7 @@ Unauthenticated requests will receive a 401 or be redirected.
 | `GET` | `/admin/api/templates/ui` | List all custom UI translations — requires `templateStore` |
 | `POST` | `/admin/api/templates/ui` | Update UI translations for a page — requires `templateStore` |
 
-> **`POST /admin/users/:id/promote`** is registered **without** the `/api` segment used by every other admin REST endpoint (mounted through `buildAllRouters()` the full path is `/auth/admin/users/:id/promote`). It runs the admin `rateLimiter` (when set) and the admin guard, and requires a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
+> **`POST /admin/api/users/:id/promote`**: through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`. The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
 > - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
 >
@@ -3001,6 +3025,7 @@ The table below shows the default claims:
 |isTotpEnabled |user.isTotpEnabled??'false' |
 
 If you want to include additional user information such as `firstName`, `lastName`, or `phoneNumber` into the payload, you must explicitly return them in the `buildTokenPayload` callback shown above. 
+Do not return a `purpose` claim: the library uses it to mark tokens that are not sessions (`purpose: '2fa'` on the 2FA `tempToken`, `purpose: 'admin'` on the admin console token), so it drops a `purpose` returned here from the access and refresh tokens.
 Any data you inject via this callback becomes automatically available directly inside the JWT (when using Bearer tokens) and is returned seamlessly as part of the JSON profile response on the `/auth/me` endpoint (when using cookie-based access).
 ## User Metadata
 
@@ -3110,11 +3135,11 @@ buildTokenPayload: async (user) => ({
 
 ### Validation Modes (`checkOn`)
 
-You can control the performance/security trade-off via the `sessionStrategy.checkOn` option:
+You can control the performance/security trade-off via the `session.checkOn` option (with an `ISessionStore` passed to the router):
 
-- `none` (Default): Purely stateless. Very fast, but tokens remain valid until they expire even if the session is deleted.
-- `refresh`: Validates the session only when a new Access Token is requested. Fast, and ensures that once a session is revoked, the user cannot get new tokens.
-- `allcalls`: Validates the session ID on **every single request** via middleware. Highest security, handles instant "kill-switch" revocation. Recommended with high-performance stores (Redis/In-Memory).
+- `none`: Purely stateless. Very fast, but tokens remain valid until they expire even if the session is deleted.
+- `refresh` (default): Validates the session only when a new Access Token is requested. Fast, and ensures that once a session is revoked, the user cannot get new tokens.
+- `allcalls`: Validates the session ID on **every single request** via middleware: the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...) and `auth.middleware()` when it has a store (`auth.middleware({ sessionStore })`, or a call made after `auth.router({ sessionStore })`). A revoked session gets `401 SESSION_REVOKED` on the next call. Highest security, handles instant "kill-switch" revocation. Recommended with high-performance stores (Redis/In-Memory).
 
 ### Automated Endpoints
 
@@ -3342,7 +3367,7 @@ bus.onEvent(AuthEventNames.AUTH_LOGIN_FAILED, (e) => {
 });
 ```
 
-Success events are published after the operation has completed. Router events carry `userId` (except `AUTH_LOGIN_FAILED` and `AUTH_OAUTH_CONFLICT`; `AUTH_LOGOUT` has it only when the request carried a valid `accessToken` cookie) and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
+Success events are published after the operation has completed. Router events carry `userId` (except `AUTH_LOGIN_FAILED` and `AUTH_OAUTH_CONFLICT`; `AUTH_LOGOUT` has it only when the request carried a valid access token, in the `Authorization: Bearer` header or the `accessToken` cookie, or the user's current refresh token in the body) and, where a session is issued, `sessionId`, plus the request context: `ip`, `userAgent` and `correlationId` (from the `X-Correlation-Id` header, kept only when it is 1–128 characters of letters, digits, `_`, `.`, `:` or `-`).
 
 **Auth router** (`createAuthRouter` / `auth.router()`):
 
@@ -3373,7 +3398,7 @@ An OAuth login that stops at the 2FA challenge does not publish `AUTH_OAUTH_SUCC
 |---|---|---|
 | `POST /api/users/:id/roles` | `ROLE_ASSIGNED` | `{ role, actorId }` (`tenantId` on the payload when given) |
 | `DELETE /api/users/:id/roles/:role` | `ROLE_REVOKED` | `{ role, actorId }` |
-| `POST /users/:id/promote` | `ROLE_ASSIGNED` | `{ role: 'admin', method, actorId }` |
+| `POST /api/users/:id/promote` (and the deprecated `POST /users/:id/promote`) | `ROLE_ASSIGNED` | `{ role: 'admin', method, actorId }` |
 
 `userId` is the user whose roles changed; `actorId` is the id of the admin the `accessPolicy` guard authorized for the request (absent with `accessPolicy: 'open'` or the legacy `adminSecret`, which identify no user).
 

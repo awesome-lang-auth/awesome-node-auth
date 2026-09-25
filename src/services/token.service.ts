@@ -8,6 +8,45 @@ import { JwksClient, JwksService } from './jwks.service';
 
 let ephemeralWarningEmitted = false;
 
+/**
+ * Claim that marks a token signed with the access-token secret which is **not**
+ * an application session token.  Session (access) tokens carry no `purpose`.
+ * @internal
+ */
+export const TOKEN_PURPOSE_CLAIM = 'purpose';
+/** `purpose` of the 2FA step-up token (`tempToken`) issued after a password. @internal */
+export const TEMP_TOKEN_PURPOSE = '2fa';
+/** `purpose` of the admin console token issued by `POST <admin>/login`. @internal */
+export const ADMIN_TOKEN_PURPOSE = 'admin';
+
+/** Lifetime of the 2FA step-up token. */
+const TEMP_TOKEN_EXPIRES_IN = '5m';
+
+function invalidAccessToken(): AuthError {
+  return new AuthError('Invalid or expired access token', 'INVALID_ACCESS_TOKEN', 401);
+}
+
+/**
+ * Lifetime of a signed JWT in milliseconds (`exp - iat`), or `undefined` when
+ * the token has no usable `iat`/`exp`.  The tokens are signed with the
+ * configured `accessTokenExpiresIn` / `refreshTokenExpiresIn`, parsed by
+ * jsonwebtoken itself, so this is the configured lifetime in every format
+ * jsonwebtoken accepts.
+ */
+function tokenLifetimeMs(token: string): number | undefined {
+  const decoded = jwt.decode(token);
+  if (decoded && typeof decoded === 'object'
+    && typeof decoded.iat === 'number' && typeof decoded.exp === 'number'
+    && decoded.exp > decoded.iat) {
+    return (decoded.exp - decoded.iat) * 1000;
+  }
+  return undefined;
+}
+
+/** Cookie lifetimes used when a token carries no `iat`/`exp` (the 1.9.0 values). */
+const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
+const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Reset ephemeral-warning flag. Exported for testing only. */
 export function _resetEphemeralWarning(): void {
   ephemeralWarningEmitted = false;
@@ -15,8 +54,11 @@ export function _resetEphemeralWarning(): void {
 
 export class TokenService {
   generateTokenPair(payload: AccessTokenPayload, config: AuthConfig): TokenPair {
-    // Exclude jwt-managed fields; spread remaining claims (including any custom ones)
-    const { iat, exp, ...claims } = payload;
+    // Exclude jwt-managed fields; spread remaining claims (including any custom ones).
+    // `purpose` is reserved for tokens that are not sessions (the 2FA step-up
+    // token, the admin console token): drop it, so a custom claim from
+    // `buildTokenPayload` can never mark a session token as one of them.
+    const { iat, exp, [TOKEN_PURPOSE_CLAIM]: _purpose, ...claims } = payload;
     const accessToken = jwt.sign(
       claims,
       config.accessTokenSecret,
@@ -140,13 +182,54 @@ export class TokenService {
     return payload;
   }
 
-  verifyAccessToken(token: string, config: AuthConfig): AccessTokenPayload {
+  /**
+   * Sign the short-lived 2FA step-up token (`tempToken`) handed out after a
+   * correct password when a second factor is required.  It carries
+   * `purpose: '2fa'`, set after the payload claims so a custom claim cannot
+   * remove it: `verifyAccessToken` refuses it, and only `verifyTempToken`
+   * (the 2FA completion endpoints) accepts it.
+   */
+  generateTempToken(payload: AccessTokenPayload, config: AuthConfig): string {
+    const { iat, exp, ...claims } = payload;
+    return jwt.sign(
+      { ...claims, [TOKEN_PURPOSE_CLAIM]: TEMP_TOKEN_PURPOSE },
+      config.accessTokenSecret,
+      { expiresIn: TEMP_TOKEN_EXPIRES_IN } as jwt.SignOptions,
+    );
+  }
+
+  /**
+   * Verify a 2FA step-up token.  Only a token minted by `generateTempToken`
+   * passes: an application access token is refused.  Throws the same
+   * `INVALID_ACCESS_TOKEN` error as `verifyAccessToken`.
+   */
+  verifyTempToken(token: string, config: AuthConfig): AccessTokenPayload {
+    let payload: AccessTokenPayload;
     try {
-      const payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
-      return payload;
+      payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
     } catch {
-      throw new AuthError('Invalid or expired access token', 'INVALID_ACCESS_TOKEN', 401);
+      throw invalidAccessToken();
     }
+    if (payload?.[TOKEN_PURPOSE_CLAIM] !== TEMP_TOKEN_PURPOSE) throw invalidAccessToken();
+    return payload;
+  }
+
+  /**
+   * Verify an application session (access) token.  A token signed with the
+   * same secret for another purpose is refused: the 2FA step-up token, and
+   * the admin console token (when the admin `jwtSecret` is the access-token
+   * secret, as `buildAllRouters()` sets it by default).
+   */
+  verifyAccessToken(token: string, config: AuthConfig): AccessTokenPayload {
+    let payload: AccessTokenPayload;
+    try {
+      payload = jwt.verify(token, config.accessTokenSecret) as AccessTokenPayload;
+    } catch {
+      throw invalidAccessToken();
+    }
+    const purpose = payload?.[TOKEN_PURPOSE_CLAIM];
+    if (purpose === TEMP_TOKEN_PURPOSE || purpose === ADMIN_TOKEN_PURPOSE) throw invalidAccessToken();
+    return payload;
   }
 
   verifyRefreshToken(token: string, config: AuthConfig): AccessTokenPayload {
@@ -192,12 +275,16 @@ export class TokenService {
       res.cookie(finalName, value, opts);
     };
 
-    setCookie('accessToken', tokens.accessToken, { maxAge: 15 * 60 * 1000 });
+    // Each cookie lives as long as the token it carries, i.e. the configured
+    // accessTokenExpiresIn / refreshTokenExpiresIn.
+    setCookie('accessToken', tokens.accessToken, {
+      maxAge: tokenLifetimeMs(tokens.accessToken) ?? DEFAULT_ACCESS_COOKIE_MAX_AGE_MS,
+    });
 
     const refreshPath = config.cookieOptions?.refreshTokenPath
       ?? (config.apiPrefix ? `${config.apiPrefix}/refresh` : '/auth/refresh');
     setCookie('refreshToken', tokens.refreshToken, {
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: tokenLifetimeMs(tokens.refreshToken) ?? DEFAULT_REFRESH_COOKIE_MAX_AGE_MS,
       path: refreshPath
     });
 

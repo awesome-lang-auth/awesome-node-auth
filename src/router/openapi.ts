@@ -108,6 +108,7 @@ export function buildAuthOpenApiSpec(
       operationId: 'logout',
       tags: ['Authentication'],
       security: [bearer],
+      requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', properties: { refreshToken: { type: 'string', description: 'Bearer clients: the current refresh token, revoked with its session' } } } } } },
       responses: {
         200: { description: 'Logged out', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } } },
         401: { description: 'Unauthorized' },

@@ -15,6 +15,7 @@ import { IApiKeyStore } from '../interfaces/api-key-store.interface';
 import { IWebhookStore } from '../interfaces/webhook-store.interface';
 import { ITemplateStore } from '../interfaces/template-store.interface';
 import { ApiKeyService } from '../services/api-key.service';
+import { TOKEN_PURPOSE_CLAIM, TEMP_TOKEN_PURPOSE, ADMIN_TOKEN_PURPOSE } from '../services/token.service';
 import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
@@ -41,8 +42,9 @@ export type AuthorizedAdminUser = BaseUser & { roles: string[] };
  * | `(user, rbacStore?) => Promise<boolean>` | Custom async predicate.  Return `true` to grant access. |
  *
  * When `accessPolicy` is set the guard validates the request JWT (using
- * `jwtSecret`) and redirects unauthenticated browsers to the app login page
- * (`/auth/ui/login?redirect=<adminPath>`).
+ * `jwtSecret`).  Unauthenticated requests get `401`, except a browser request
+ * for the HTML panel, which is redirected to `loginPath` when it is set and
+ * otherwise shows the panel's built-in sign-in form.
  *
  * @since 1.8.0
  */
@@ -58,8 +60,10 @@ export interface AdminOptions {
    * Pass as a Bearer token: `Authorization: Bearer <adminSecret>`
    * The HTML UI presents a login form that stores the token in sessionStorage.
    *
-   * Must be non-empty: without `accessPolicy`, an empty string counts as no
-   * secret, and the admin routes are mounted unprotected (with a stderr WARNING).
+   * Must be non-empty: without `accessPolicy`, `createAdminRouter` throws when
+   * `adminSecret` is present but empty (`''`, or `undefined` from an unset
+   * environment variable).  With `accessPolicy` it is only the bootstrap
+   * credential of `POST /login`, and an empty value disables it.
    *
    * @deprecated Use `accessPolicy` + `jwtSecret` instead (v1.8.0+).
    *   `adminSecret` will be removed in a future major version.
@@ -71,9 +75,10 @@ export interface AdminOptions {
    * Access control policy that governs who may use the Admin UI and API.
    *
    * When set, the guard validates the request JWT (`Authorization: Bearer <token>`
-   * or the `accessToken` cookie) and — for browser requests without a valid
-   * session — issues a `302` redirect to the app login page
-   * (`/auth/ui/login?redirect=<adminPath>`).
+   * or the `accessToken` cookie).  A request without a valid session gets
+   * `401`, except a browser request for the HTML panel (`GET <adminPath>/`),
+   * which is redirected to `loginPath` when it is set and otherwise shows the
+   * panel's built-in sign-in form.
    *
    * Requires `jwtSecret` to be set when using any policy other than `'open'`.
    *
@@ -196,8 +201,9 @@ export interface AdminOptions {
   swaggerBasePath?: string;
 
   /**
-   * Optional custom login path to redirect unauthenticated browser requests.
-   * If not provided, the Admin UI serves its own internal login form as a fallback.
+   * Optional custom login path to redirect unauthenticated browser requests
+   * for the HTML panel to.  If not provided, the panel serves its own internal
+   * login form as a fallback.  The REST API answers `401` either way.
    *
    * @example '/login'
    * @since 1.8.0
@@ -234,7 +240,7 @@ function adminActorId(res: Response): string | undefined {
  * Refuse a request whose body is not `application/json` with `415`.
  *
  * For admin mutations that need no body field to grant a privilege (such as
- * `POST /users/:id/promote`): an HTML form or a `text/plain` POST is a CORS
+ * `POST /api/users/:id/promote` and its alias): an HTML form or a `text/plain` POST is a CORS
  * "simple" request that a browser sends cross-site without a preflight, an
  * `application/json` one is not.  Every route that grants admin access this
  * way must use this check.
@@ -314,9 +320,14 @@ function applyHostCookieRequirements(cookieName: string, opts: Record<string, un
 /**
  * JWT-based guard that enforces `AdminAccessPolicy`.
  *
- * For HTML requests without a valid session, issues a 302 redirect to the
- * app login page (`/auth/ui/login?redirect=<adminPath>`).
- * For JSON / API requests without a valid session, returns 401.
+ * A request without a valid session gets `401`; so does a validly signed
+ * token that names no stored user (no `sub`, or an unknown or deleted user).
+ * The one exception is the
+ * guard built with `loginFormFallback` for the HTML panel route: there an
+ * unauthenticated browser request (`Accept: text/html`) is redirected to
+ * `loginPath` when it is set, or, for a `GET`, let through with the
+ * `adminNeedsAuth` marker so the panel renders its built-in sign-in form.
+ * No other route may use that guard: its handlers do not check the marker.
  */
 function buildPolicyGuard(
   policy: AdminAccessPolicy,
@@ -325,6 +336,7 @@ function buildPolicyGuard(
   rbacStore?: IRolesPermissionsStore,
   loginPath?: string,
   cookiePrefix?: string,
+  loginFormFallback = false,
 ): RequestHandler {
   return async (req: Request, res: Response, next) => {
     // 'open' — no auth required at all
@@ -363,13 +375,19 @@ function buildPolicyGuard(
         } catch {
           payload = null;
         }
+        // The 2FA step-up token proves a password, not a session: refuse it.
+        if (payload && payload[TOKEN_PURPOSE_CLAIM] === TEMP_TOKEN_PURPOSE) {
+          payload = null;
+        }
       }
     }
 
-    // ── 2. Unauthenticated → redirect (HTML) or 401 (API) ─────────────────
-    if (!payload) {
+    // ── 2. Unauthenticated → 401, or (panel route only) redirect / sign-in form
+    // Also used when a validly signed token names no usable user (no `sub`,
+    // unknown or deleted user), so the panel still offers a way to sign in.
+    const unauthenticated = (): void => {
       const acceptsHtml = req.headers.accept?.includes('text/html');
-      if (acceptsHtml) {
+      if (acceptsHtml && loginFormFallback) {
         // 1. External redirect if configured
         if (loginPath) {
           const redirectTo = encodeURIComponent(req.baseUrl + req.path);
@@ -378,31 +396,33 @@ function buildPolicyGuard(
         }
 
         // 2. Internal fallback: let the GET request through but mark as unauthenticated
-        // so the UI router can show the built-in login form.
+        // so the panel handler can show the built-in login form.
         if (req.method === 'GET') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (req as any).adminNeedsAuth = true;
           next();
           return;
         }
-
-        // For non-GET requests (e.g. API) that aren't authenticated
-        res.status(401).json({ error: 'Unauthorized' });
-      } else {
-        res.status(401).json({ error: 'Unauthorized' });
       }
+      res.status(401).json({ error: 'Unauthorized' });
+    };
+
+    if (!payload) {
+      unauthenticated();
       return;
     }
 
     // ── 3. Load the full user record ───────────────────────────────────────
     const userId = payload['sub'] as string | undefined;
     if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
+      unauthenticated();
       return;
     }
 
-    // Handle root/bootstrap override
-    if (payload['isRoot'] === true) {
+    // Handle root/bootstrap override.  Only the admin console token minted by
+    // POST /login may carry it: on any other token (for example one whose
+    // claims come from `buildTokenPayload`) `isRoot` is ignored.
+    if (payload['isRoot'] === true && payload[TOKEN_PURPOSE_CLAIM] === ADMIN_TOKEN_PURPOSE) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req as any).user = {
         id: userId,
@@ -423,7 +443,7 @@ function buildPolicyGuard(
     }
 
     if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
+      unauthenticated();
       return;
     }
 
@@ -572,6 +592,19 @@ export function createAdminRouter(
   userStore: IUserStore,
   options: AdminOptions,
 ): Router {
+  // An `adminSecret` that is present but empty (`''`, or an unset environment
+  // variable) would otherwise fall through to the unprotected router below.
+  if (
+    options.accessPolicy === undefined
+    && Object.prototype.hasOwnProperty.call(options, 'adminSecret')
+    && (typeof options.adminSecret !== 'string' || options.adminSecret === '')
+  ) {
+    throw new Error(
+      '[awesome-node-auth] createAdminRouter: `adminSecret` is empty. Set it to a non-empty secret, ' +
+      'or configure `accessPolicy` instead (`accessPolicy: \'open\'` mounts the admin routes without protection on purpose).',
+    );
+  }
+
   const router = Router();
   const eventBus = options.eventBus;
   const rateLimiter = options.rateLimiter ? [options.rateLimiter] : [];
@@ -582,6 +615,9 @@ export function createAdminRouter(
   // ── Select the appropriate authentication guard ──────────────────────────
   // Priority: accessPolicy (new) > adminSecret (legacy) > open (no auth).
   let guard: RequestHandler;
+  // Guard of the HTML panel route only (see buildPolicyGuard): the one route
+  // that may answer an unauthenticated browser with the sign-in form.
+  let panelGuard: RequestHandler | undefined;
   let sessionBased = false;
 
   if (options.accessPolicy !== undefined) {
@@ -593,6 +629,15 @@ export function createAdminRouter(
       options.rbacStore,
       options.loginPath,
       options.cookiePrefix,
+    );
+    panelGuard = buildPolicyGuard(
+      options.accessPolicy,
+      userStore,
+      options.jwtSecret,
+      options.rbacStore,
+      options.loginPath,
+      options.cookiePrefix,
+      true,
     );
     sessionBased = options.accessPolicy !== 'open';
   } else if (options.adminSecret) {
@@ -649,9 +694,11 @@ export function createAdminRouter(
         return;
       }
 
-      // Sign JWT
+      // Sign JWT.  `purpose: 'admin'` confines it to the admin console: the
+      // app's auth middleware refuses it even when `jwtSecret` is the
+      // access-token secret.
       const token = jwt.sign(
-        { sub: authedUser.id, email: authedUser.email, isRoot: authedUser.isRoot },
+        { sub: authedUser.id, email: authedUser.email, isRoot: authedUser.isRoot, [TOKEN_PURPOSE_CLAIM]: ADMIN_TOKEN_PURPOSE },
         secret,
         { expiresIn: '24h' },
       );
@@ -795,8 +842,8 @@ export function createAdminRouter(
   // When using accessPolicy (session-based): guard is applied so unauthenticated browsers are
   // redirected to the login page before the HTML is served.
   // When using legacy adminSecret: the HTML is served without auth (the client-side JS handles login).
-  const htmlRoute: RequestHandler[] = sessionBased
-    ? [guard, (_req: Request, res: Response) => {
+  const htmlRoute: RequestHandler[] = sessionBased && panelGuard
+    ? [panelGuard, (_req: Request, res: Response) => {
       const needsAuth = ((_req as any).adminNeedsAuth === true);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
@@ -1027,7 +1074,10 @@ export function createAdminRouter(
     }
   });
 
-  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, async (req: Request, res: Response) => {
+  // POST /admin/api/users/:id/promote — grant admin access (role or isAdmin flag).
+  // POST /admin/users/:id/promote is the deprecated alias without `/api`, with
+  // the same chain.  requireJsonBody is the CSRF defence of both (see above).
+  const promoteHandler: RequestHandler = async (req: Request, res: Response) => {
     const userId = req.params['id'] as string;
     const method = (req.body as { method?: 'flag' | 'role' } | undefined)?.method ?? 'role';
     try {
@@ -1060,7 +1110,10 @@ export function createAdminRouter(
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
-  });
+  };
+  router.post('/api/users/:id/promote', ...rateLimiter, guard, requireJsonBody, promoteHandler);
+  /** @deprecated Use `POST /api/users/:id/promote`; kept as an alias with the same guard and behaviour. */
+  router.post('/users/:id/promote', ...rateLimiter, guard, requireJsonBody, promoteHandler);
 
   // ---- User ↔ Tenant assignment (from user panel) --------------------------
 

@@ -173,7 +173,7 @@ Full configuration reference → [README.detailed.md § Configuration](./README.
 
 ## Admin UI
 
-Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`.
+Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`. Without `accessPolicy`, an `adminSecret` that is present but empty (an unset environment variable, for example) throws a configuration error at startup.
 
 | `admin` option (`AdminOptions`) | Unlocks |
 |---|---|
@@ -196,6 +196,8 @@ Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router an
 - `/auth/admin/` — admin panel for operators (its sign-in form posts to `/auth/admin/login`)
 
 They are intentionally different flows. If you mount the admin UI for operators, keep linking end users to `/auth/ui/login`.
+
+The admin sign-in form checks the password only, with no second factor, and its session opens the admin console and nothing else. To send operators through the application login and its 2FA flow, set `admin.loginPath: '/auth/ui/login'` (after signing in they land on `/`; reopen `/auth/admin/`). `POST /auth/admin/login` stays mounted and still accepts the password alone, so block it at your proxy if operators must always pass 2FA.
 
 ---
 
