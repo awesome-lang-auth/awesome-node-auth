@@ -15,7 +15,7 @@ import { IApiKeyStore } from '../interfaces/api-key-store.interface';
 import { IWebhookStore } from '../interfaces/webhook-store.interface';
 import { ITemplateStore } from '../interfaces/template-store.interface';
 import { ApiKeyService } from '../services/api-key.service';
-import { TOKEN_PURPOSE_CLAIM, TEMP_TOKEN_PURPOSE } from '../services/token.service';
+import { TOKEN_PURPOSE_CLAIM, TEMP_TOKEN_PURPOSE, ADMIN_TOKEN_PURPOSE } from '../services/token.service';
 import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
@@ -412,8 +412,10 @@ function buildPolicyGuard(
       return;
     }
 
-    // Handle root/bootstrap override
-    if (payload['isRoot'] === true) {
+    // Handle root/bootstrap override.  Only the admin console token minted by
+    // POST /login may carry it: on any other token (for example one whose
+    // claims come from `buildTokenPayload`) `isRoot` is ignored.
+    if (payload['isRoot'] === true && payload[TOKEN_PURPOSE_CLAIM] === ADMIN_TOKEN_PURPOSE) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req as any).user = {
         id: userId,
@@ -672,9 +674,11 @@ export function createAdminRouter(
         return;
       }
 
-      // Sign JWT
+      // Sign JWT.  `purpose: 'admin'` confines it to the admin console: the
+      // app's auth middleware refuses it even when `jwtSecret` is the
+      // access-token secret.
       const token = jwt.sign(
-        { sub: authedUser.id, email: authedUser.email, isRoot: authedUser.isRoot },
+        { sub: authedUser.id, email: authedUser.email, isRoot: authedUser.isRoot, [TOKEN_PURPOSE_CLAIM]: ADMIN_TOKEN_PURPOSE },
         secret,
         { expiresIn: '24h' },
       );

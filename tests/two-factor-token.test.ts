@@ -6,6 +6,10 @@
  * by nothing else: the app's auth middleware, the admin guard and the SSE
  * stream all refuse it.  The completion endpoints, in turn, refuse an
  * ordinary access token in its place.
+ *
+ * The admin console token (`POST <admin>/login`, password only) is signed with
+ * the same secret under `buildAllRouters()`; it opens the admin console and
+ * nothing else.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
@@ -113,6 +117,53 @@ describe('2FA step-up token', () => {
     // SSE stream behind the host's auth.middleware() (token in the query string).
     const stream = await request(app).get(`/tools/stream?token=${encodeURIComponent(tempToken)}`);
     expect(stream.status).toBe(403);
+  });
+
+  it('REGRESSION-2FA-ADMIN-GUARD: password-only POST <admin>/login — the admin console token is refused by protected app routes', async () => {
+    // The admin sign-in form checks the password only (documented); its token
+    // must stay inside the admin console.
+    const login = await request(app)
+      .post('/auth/admin/login')
+      .send({ email: 'ops@example.com', password: 'correct horse' });
+    expect(login.status).toBe(200);
+    const cookie = cookieHeader(login);
+    expect(cookie).toMatch(/^accessToken=/);
+    const adminToken = cookie.slice('accessToken='.length);
+
+    // It still opens the admin console.
+    const ping = await request(app).get('/auth/admin/api/ping').set('Cookie', cookie);
+    expect(ping.status).toBe(200);
+
+    // It is not an application session.
+    for (const auth of [{ Authorization: `Bearer ${adminToken}` }, { Cookie: cookie }]) {
+      const me = await request(app).get('/auth/me').set(auth);
+      expect(me.status).toBe(403);
+      expect(me.body).toEqual({ error: 'Invalid or expired access token' });
+      const setup = await request(app).post('/auth/2fa/setup').set(auth).send({});
+      expect(setup.status).toBe(403);
+    }
+    const stream = await request(app).get(`/tools/stream?token=${encodeURIComponent(adminToken)}`);
+    expect(stream.status).toBe(403);
+    expect(() => tokenService.verifyAccessToken(adminToken, config)).toThrow('Invalid or expired access token');
+  });
+
+  it('the admin guard honours isRoot only on the admin console token', async () => {
+    // An access token whose claims say isRoot (e.g. from buildTokenPayload) is
+    // judged like any other session: here its subject does not exist.
+    const forged = tokenService.generateTokenPair({ sub: 'root', email: 'root@admin', isRoot: true }, config).accessToken;
+    const res = await request(app).get('/auth/admin/api/ping').set('Authorization', `Bearer ${forged}`);
+    expect(res.status).toBe(401);
+
+    // The bootstrap sign-in (adminSecret) still yields a working root session.
+    const rootApp = express();
+    rootApp.use(express.json());
+    rootApp.use(new AuthConfigurator(config, userStore).buildAllRouters({
+      admin: { accessPolicy: 'is-admin-flag', adminSecret: 'bootstrap-secret', silent: true },
+    }));
+    const login = await request(rootApp).post('/auth/admin/login').send({ password: 'bootstrap-secret' });
+    expect(login.status).toBe(200);
+    const ping = await request(rootApp).get('/auth/admin/api/ping').set('Cookie', cookieHeader(login));
+    expect(ping.status).toBe(200);
   });
 
   it('the full TOTP flow still works in cookie mode', async () => {

@@ -188,6 +188,8 @@ Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router an
 
 They are intentionally different flows. If you mount the admin UI for operators, keep linking end users to `/auth/ui/login`.
 
+The admin sign-in form checks the password only, with no second factor, and its session opens the admin console and nothing else. To require 2FA for operators, set `admin.loginPath: '/auth/ui/login'`: the panel then sends them through the application login and its 2FA flow.
+
 ---
 
 ## Documentation

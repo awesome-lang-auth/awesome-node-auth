@@ -2820,6 +2820,8 @@ app.use(auth.buildAllRouters({
 
 Unless `loginPath` redirects elsewhere, the admin panel shows its own sign-in form for operators (served at `<apiPrefix>/admin/`, posting to `<apiPrefix>/admin/login`); end users sign in at `<apiPrefix>/ui/login`. Keep the two audiences separate.
 
+> **The admin sign-in form does not ask for a second factor.** `POST <apiPrefix>/admin/login` checks the email and password (or the root user / `adminSecret` bootstrap credentials) and nothing else, even for a user with 2FA enabled, and signs a 24-hour admin console token. That token carries `purpose: 'admin'`: the admin guard accepts it, and `auth.middleware()` and every other session check of the application refuse it, even though it is signed with the same secret. To require 2FA for operators, set `loginPath` to the application login (for example `'/auth/ui/login'`), which runs the full 2FA flow; the resulting session opens the panel. `POST <apiPrefix>/admin/login` stays mounted either way, so restrict it at the proxy (or mount the admin router behind a VPN or IP allow-list) if password-only access must be impossible.
+
 ### Admin access policy and `AuthorizedAdminUser`
 
 Before evaluating `accessPolicy`, the guard loads the user's roles with `rbacStore.getRolesForUser(user.id)` (when `rbacStore` is configured; a failed lookup yields `[]`) and builds an `AuthorizedAdminUser` — `BaseUser & { roles: string[] }`. A custom policy function receives it, and it is stored on `req.user` for the admin handlers. A root/bootstrap session gets `roles: ['admin']`.

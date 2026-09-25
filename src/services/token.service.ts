@@ -16,6 +16,8 @@ let ephemeralWarningEmitted = false;
 export const TOKEN_PURPOSE_CLAIM = 'purpose';
 /** `purpose` of the 2FA step-up token (`tempToken`) issued after a password. @internal */
 export const TEMP_TOKEN_PURPOSE = '2fa';
+/** `purpose` of the admin console token issued by `POST <admin>/login`. @internal */
+export const ADMIN_TOKEN_PURPOSE = 'admin';
 
 /** Lifetime of the 2FA step-up token. */
 const TEMP_TOKEN_EXPIRES_IN = '5m';
@@ -190,7 +192,9 @@ export class TokenService {
 
   /**
    * Verify an application session (access) token.  A token signed with the
-   * same secret for another purpose (the 2FA step-up token) is refused.
+   * same secret for another purpose is refused: the 2FA step-up token, and
+   * the admin console token (when the admin `jwtSecret` is the access-token
+   * secret, as `buildAllRouters()` sets it by default).
    */
   verifyAccessToken(token: string, config: AuthConfig): AccessTokenPayload {
     let payload: AccessTokenPayload;
@@ -199,7 +203,8 @@ export class TokenService {
     } catch {
       throw invalidAccessToken();
     }
-    if (payload?.[TOKEN_PURPOSE_CLAIM] === TEMP_TOKEN_PURPOSE) throw invalidAccessToken();
+    const purpose = payload?.[TOKEN_PURPOSE_CLAIM];
+    if (purpose === TEMP_TOKEN_PURPOSE || purpose === ADMIN_TOKEN_PURPOSE) throw invalidAccessToken();
     return payload;
   }
 
