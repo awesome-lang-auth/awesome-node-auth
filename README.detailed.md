@@ -3470,7 +3470,7 @@ const myDistributor: ISseDistributor = {
 const tools = new AuthTools(bus, { sseDistributor: myDistributor });
 ```
 
-When `sseDistributor` is set, the SSE channel of `tools.notify()` calls `sseDistributor.publish(target, { type, data, tenantId, userId, metadata })` instead of broadcasting through the built-in `SseManager`; the distributor is then responsible for delivering the event. Delivery is best-effort: a rejected `publish()` is ignored. Passing both `sse: true` and `sseDistributor` writes a `WARN` line to `stderr`, and `notify()` uses the distributor. This is different from `sseOptions.distributor`, which keeps the built-in `SseManager` and synchronizes it across instances.
+When `sseDistributor` is set, the SSE channel of `tools.notify()` calls `sseDistributor.publish(target, event)` instead of broadcasting through the built-in `SseManager`; `event` is a complete `StreamEvent` — `{ id, timestamp, topic, type, data, tenantId, userId, metadata }` with `topic` equal to `target`, the same shape `SseManager` publishes — and the distributor is then responsible for delivering it. Delivery is best-effort: a rejected `publish()` is ignored. Passing both `sse: true` and `sseDistributor` writes a `WARN` line to `stderr`, and `notify()` uses the distributor. This is different from `sseOptions.distributor`, which keeps the built-in `SseManager` and synchronizes it across instances; the same distributor can be passed to both, and the `SseManager` then delivers the `notify()` events it receives to its local connections.
 
 **HTTP API:**
 

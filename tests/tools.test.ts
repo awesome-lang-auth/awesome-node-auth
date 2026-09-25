@@ -267,6 +267,9 @@ describe('AuthTools', () => {
     await tools.notify('user:u1', { msg: 'hello' }, { type: 'custom' });
 
     expect(distributor.publish).toHaveBeenCalledWith('user:u1', {
+      id: expect.any(String),
+      timestamp: expect.any(String),
+      topic: 'user:u1',
       type: 'custom',
       data: { msg: 'hello' },
       tenantId: undefined,
@@ -275,6 +278,45 @@ describe('AuthTools', () => {
     });
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('custom distributor'));
     stderrSpy.mockRestore();
+  });
+
+  it('notify() through sseDistributor reaches SseManager connections fed by the same distributor (loopback)', async () => {
+    // A loopback distributor: publish() hands the event to every subscriber,
+    // like a Redis Pub/Sub round trip. The SseManager subscribes to it
+    // through sseOptions.distributor.
+    const subscribers: Array<(topic: string, event: unknown) => void> = [];
+    const loopback: ISseDistributor = {
+      publish: async (topic, event) => { subscribers.forEach((cb) => cb(topic, event)); },
+      subscribe: async (cb) => { subscribers.push(cb); },
+    };
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const tools = new AuthTools(bus, {
+      sse: true,
+      sseOptions: { distributor: loopback, heartbeatIntervalMs: 0 },
+      sseDistributor: loopback,
+    });
+    stderrSpy.mockRestore();
+
+    const written: string[] = [];
+    const fakeRes = {
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: (chunk: string) => { written.push(chunk); return true; },
+      end: vi.fn(),
+      on: vi.fn(),
+    } as unknown as import('express').Response;
+    tools.sseManager!.connect(fakeRes, ['user:u1']);
+    const afterConnect = written.length;
+
+    await tools.notify('user:u1', { hello: 1 });
+    await tools.notify('user:u1', { hello: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Each event is written as three chunks (id, event, data); both events arrive.
+    expect(written.length - afterConnect).toBe(6);
+    const output = written.join('');
+    expect(output).toContain('"rawData":{"hello":1}');
+    expect(output).toContain('"rawData":{"hello":2}');
   });
 
   it('track() triggers outgoing webhooks', async () => {

@@ -316,7 +316,15 @@ export class AuthTools {
         metadata: options.metadata,
       };
       if (this.sseDistributor) {
-        this.sseDistributor.publish(target, streamEvent).catch(() => {/* best-effort */});
+        // Publish a complete StreamEvent, as SseManager.broadcast() does:
+        // receivers (SseManager included) deduplicate on `id`.
+        const fullEvent: StreamEvent<T> = {
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          topic: target,
+          ...streamEvent,
+        };
+        this.sseDistributor.publish(target, fullEvent).catch(() => {/* best-effort */});
       } else if (this.sseManager) {
         this.sseManager.broadcast<T>(target, streamEvent);
       }
