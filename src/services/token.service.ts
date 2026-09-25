@@ -26,6 +26,27 @@ function invalidAccessToken(): AuthError {
   return new AuthError('Invalid or expired access token', 'INVALID_ACCESS_TOKEN', 401);
 }
 
+/**
+ * Lifetime of a signed JWT in milliseconds (`exp - iat`), or `undefined` when
+ * the token has no usable `iat`/`exp`.  The tokens are signed with the
+ * configured `accessTokenExpiresIn` / `refreshTokenExpiresIn`, parsed by
+ * jsonwebtoken itself, so this is the configured lifetime in every format
+ * jsonwebtoken accepts.
+ */
+function tokenLifetimeMs(token: string): number | undefined {
+  const decoded = jwt.decode(token);
+  if (decoded && typeof decoded === 'object'
+    && typeof decoded.iat === 'number' && typeof decoded.exp === 'number'
+    && decoded.exp > decoded.iat) {
+    return (decoded.exp - decoded.iat) * 1000;
+  }
+  return undefined;
+}
+
+/** Cookie lifetimes used when a token carries no `iat`/`exp` (the 1.9.0 values). */
+const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
+const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Reset ephemeral-warning flag. Exported for testing only. */
 export function _resetEphemeralWarning(): void {
   ephemeralWarningEmitted = false;
@@ -251,12 +272,16 @@ export class TokenService {
       res.cookie(finalName, value, opts);
     };
 
-    setCookie('accessToken', tokens.accessToken, { maxAge: 15 * 60 * 1000 });
+    // Each cookie lives as long as the token it carries, i.e. the configured
+    // accessTokenExpiresIn / refreshTokenExpiresIn.
+    setCookie('accessToken', tokens.accessToken, {
+      maxAge: tokenLifetimeMs(tokens.accessToken) ?? DEFAULT_ACCESS_COOKIE_MAX_AGE_MS,
+    });
 
     const refreshPath = config.cookieOptions?.refreshTokenPath
       ?? (config.apiPrefix ? `${config.apiPrefix}/refresh` : '/auth/refresh');
     setCookie('refreshToken', tokens.refreshToken, {
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: tokenLifetimeMs(tokens.refreshToken) ?? DEFAULT_REFRESH_COOKIE_MAX_AGE_MS,
       path: refreshPath
     });
 

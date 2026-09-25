@@ -430,7 +430,8 @@ const config: AuthConfig = {
   accessTokenSecret: process.env.ACCESS_TOKEN_SECRET!,
   refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET!,
 
-  // Token lifetimes (default: 15m / 7d)
+  // Token lifetimes (default: 15m / 7d). In cookie mode the accessToken and
+  // refreshToken cookies get the same lifetime as the token they carry.
   accessTokenExpiresIn: '15m',
   refreshTokenExpiresIn: '7d',
 
