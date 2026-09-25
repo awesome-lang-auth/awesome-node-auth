@@ -1766,7 +1766,12 @@ export function createAuthRouter(
         });
         await userStore.updateAccountLinkToken(user.id, null, null, null, null);
         if (loginAfterLinking) {
-          await issueTokens(req, res, user, config, options, userStore);
+          const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+          publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+            userId: user.id,
+            sessionId,
+            data: { method: 'link-verify' },
+          });
           return;
         }
         res.json({ success: true });

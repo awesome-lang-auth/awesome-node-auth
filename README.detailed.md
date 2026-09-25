@@ -3380,6 +3380,7 @@ Success events are published after the operation has completed. Router events ca
 | `POST /2fa/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'totp' }` |
 | `POST /magic-link/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'magic-link' }` |
 | `POST /sms/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'sms' }` |
+| `POST /link-verify` with `loginAfterLinking: true` | `AUTH_LOGIN_SUCCESS` | `{ method: 'link-verify' }` — the session is issued without a second factor |
 | `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` — `provider` is the user record's `loginProvider` when set, otherwise the provider of this login |
 | `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, email, providerAccountId }` — the two conflict fields are picked from the `OAUTH_ACCOUNT_CONFLICT` error's `data` when they are strings; nothing else from it is copied |
 | `POST /logout` | `AUTH_LOGOUT` | — |

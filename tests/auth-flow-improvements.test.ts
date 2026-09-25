@@ -512,6 +512,43 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     expect(store.updateAccountLinkToken).toHaveBeenCalledWith('u1', null, null, null, null);
   });
 
+  it('POST /link-verify publishes AUTH_LOGIN_SUCCESS (method link-verify) only when it issues a session', async () => {
+    const makeUser = (linkToken: string): BaseUser => ({
+      id: 'u1',
+      email: 'user@test.com',
+      accountLinkToken: linkToken,
+      accountLinkTokenExpiry: new Date(Date.now() + 60_000),
+      accountLinkPendingEmail: 'secondary@example.com',
+      accountLinkPendingProvider: 'email',
+    });
+    const mount = (user: BaseUser) => {
+      const bus = new AuthEventBus();
+      const seen: Array<{ event: string; userId?: string; data?: unknown }> = [];
+      bus.onEvent('*', (payload) => seen.push(payload as { event: string; userId?: string; data?: unknown }));
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(makeStoreWithLinkToken(user), config, { linkedAccountsStore, eventBus: bus }));
+      return { app, seen };
+    };
+
+    const withLogin = mount(makeUser('link-token-login'));
+    const res = await request(withLogin.app)
+      .post('/auth/link-verify')
+      .set('X-Auth-Strategy', 'bearer')
+      .send({ token: 'link-token-login', loginAfterLinking: true });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.accessToken).toBe('string');
+    const logins = withLogin.seen.filter((e) => e.event === AuthEventNames.AUTH_LOGIN_SUCCESS);
+    expect(logins).toHaveLength(1);
+    expect(logins[0].userId).toBe('u1');
+    expect(logins[0].data).toEqual({ method: 'link-verify' });
+
+    const linkOnly = mount(makeUser('link-token-only'));
+    const res2 = await request(linkOnly.app).post('/auth/link-verify').send({ token: 'link-token-only' });
+    expect(res2.status).toBe(200);
+    expect(linkOnly.seen.filter((e) => e.event === AuthEventNames.AUTH_LOGIN_SUCCESS)).toHaveLength(0);
+  });
+
   it('POST /link-verify returns 400 for invalid token', async () => {
     const user: BaseUser = {
       id: 'u1',
