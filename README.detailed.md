@@ -407,6 +407,8 @@ app.use('/auth', createAuthRouter(userStore, config, {
 }));
 ```
 
+For a listed origin the router answers the preflight itself and allows the methods `GET,POST,PUT,PATCH,DELETE,OPTIONS`, credentials, and the request headers `Content-Type`, `Authorization`, `X-CSRF-Token`, `X-Api-Key` and `X-Auth-Strategy` (so a browser app on another origin can use [bearer mode](#bearer-token-strategy)).
+
 ### Dynamic Email Links (`siteUrl`)
 When the router receives a request from an allowed origin, it dynamically sets that origin as the base URL for any emails sent during that request (like magic links or password resets). This ensures users are redirected back to the exact frontend they initiated the request from.
 

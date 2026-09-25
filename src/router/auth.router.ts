@@ -593,7 +593,7 @@ export function createAuthRouter(
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-CSRF-Token,X-Api-Key');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-CSRF-Token,X-Api-Key,X-Auth-Strategy');
       }
       // Ensure caches/proxies do not serve a cached response with the wrong origin
       res.setHeader('Vary', 'Origin');
