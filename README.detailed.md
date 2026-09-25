@@ -3168,7 +3168,7 @@ const auth = new AuthConfigurator(
   userStore,
 );
 
-app.use('/auth', auth.router({ sessionStore }));                // session list, refresh check, cleanup
+app.use('/auth', auth.router({ sessionStore }));                // creates sessions at sign-in; session list, refresh check, cleanup
 app.get('/api/data', auth.middleware({ sessionStore }), handler); // session checked on every request
 ```
 
