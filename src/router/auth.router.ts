@@ -118,7 +118,8 @@ export interface RouterOptions {
    * the register endpoint is not mounted.
    *
    * The built-in handler requires `email` and `password` (non-empty strings),
-   * hashes the password and calls `userStore.create` with an allow-list of
+   * answers `409 USER_EXISTS` when `userStore.findByEmail(email)` finds an
+   * account, hashes the password and calls `userStore.create` with an allow-list of
    * fields: `email`, the password hash, and `firstName` / `lastName` when they
    * are strings.  Every other field of the request body (for example `id`,
    * `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, token fields,
@@ -517,6 +518,12 @@ export function createAuthRouter(
     const password = body['password'];
     if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       throw new AuthError('Email and password are required', 'INVALID_INPUT', 400);
+    }
+    // IUserStore does not require unique e-mail addresses, so refuse a taken
+    // one here rather than create a second account under it (as Go does, and
+    // as POST /change-email/request does).
+    if (await userStore.findByEmail(email)) {
+      throw new AuthError('User already exists', 'USER_EXISTS', 409);
     }
     const hash = await passwordService.hash(password, config.bcryptSaltRounds);
     const newUser: Partial<BaseUser> = { email, password: hash };
@@ -1759,7 +1766,12 @@ export function createAuthRouter(
         });
         await userStore.updateAccountLinkToken(user.id, null, null, null, null);
         if (loginAfterLinking) {
-          await issueTokens(req, res, user, config, options, userStore);
+          const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
+          publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+            userId: user.id,
+            sessionId,
+            data: { method: 'link-verify' },
+          });
           return;
         }
         res.json({ success: true });

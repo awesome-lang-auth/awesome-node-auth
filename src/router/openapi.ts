@@ -165,6 +165,7 @@ export function buildAuthOpenApiSpec(
         responses: {
           201: { description: 'Account created', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, userId: { type: 'string' } }, required: ['success', 'userId'] } } } },
           400: { description: 'Validation error' },
+          409: { description: 'An account with this e-mail address already exists (built-in handler: code USER_EXISTS)' },
         },
       },
     };

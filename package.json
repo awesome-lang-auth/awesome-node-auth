@@ -1,14 +1,13 @@
 {
   "name": "awesome-node-auth",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Database-agnostic JWT authentication and communication bus for Node.js",
   "main": "dist/index.js",
   "scripts": {
     "extract-i18n": "node scripts/extract-i18n-keys.js",
     "build": "npm run extract-i18n && tsc && mkdir -p dist/ui-assets && cp -r src/ui/assets/* dist/ui-assets",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "sync:public": "bash scripts/sync-to-public.sh"
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
@@ -39,15 +38,10 @@
     "flutter",
     "bearer token",
     "sms",
-    "mcp",
-    "model-context-protocol",
-    "cursor-mcp",
     "event-bus",
     "pub-sub",
     "message-queue",
-    "redis",
-    "vscode-mcp",
-    "antigravity-mcp"
+    "redis"
   ],
   "author": "Nicola Brecciaroli",
   "license": "MIT",

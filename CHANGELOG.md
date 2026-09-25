@@ -5,20 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
-## [Unreleased]
+## [1.10.0] — 2026-09-25
 
 ### Added
 
 #### One-call mounting and admin bootstrap
 - **`AuthConfigurator.buildAllRouters(options)`** — mounts the auth router at the API prefix and the admin router at `<apiPrefix>/admin` in a single router; the admin `jwtSecret` defaults to `AuthConfig.accessTokenSecret`. New exported types `BuildAllRoutersOptions` and `AuthConfiguratorOptions` (optional third constructor argument, `{ eventBus }`). `BuildAllRoutersOptions.admin` requires `accessPolicy` or a non-empty legacy `adminSecret`.
 - **`AuthConfigurator.promoteToAdmin()` / `revokeAdmin()`** — grant or remove admin access by role (`rbacStore`, the default) or by the `isAdmin` flag (`IUserStore.update`); `revokeAdmin` also accepts `method: 'both'`, which needs both stores. Both helpers throw on an unknown `method`, and a revocation checks its prerequisites first and throws before changing anything when a store is missing.
-- **`POST /api/users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`). It requires a JSON body (`415` otherwise). The same route without `/api`, `POST /users/:id/promote`, is a deprecated alias (see Deprecated).
+- **`POST /api/users/:id/promote`** on the admin router — HTTP equivalent of `promoteToAdmin` (`{ method?: 'role' | 'flag' }`; `400` on any other `method`). It requires a JSON body (`415` otherwise). The same route without `/api`, `POST /users/:id/promote`, is a deprecated alias (see Deprecated).
 - **`IUserStore.update?(userId, patch)`** — optional partial update, used by the flag-based promote/revoke.
 - **`AuthorizedAdminUser`** type — the admin guard loads the user's roles from `rbacStore` before evaluating `accessPolicy`; custom policies and `req.user` receive `BaseUser & { roles: string[] }`.
 - **`AdminOptions.eventBus`**, **`AdminOptions.rateLimiter`** (applied to the promote endpoint) and **`AdminOptions.silent`** (suppresses the startup tab summary).
 
 #### Registration
-- **`RouterOptions.defaultRegister`** — opt-in built-in handler for `POST /register` when `onRegister` is omitted (never in Resource Server mode). It requires `email` and `password` (`400 INVALID_INPUT` otherwise), hashes the password and stores an allow-list of fields: `email`, the password hash, and `firstName` / `lastName` when they are strings. Every other field of the request body is dropped. Without `onRegister` or `defaultRegister` the route is not mounted, as in 1.9.0; the built-in UI and the OpenAPI spec follow the same rule.
+- **`RouterOptions.defaultRegister`** — opt-in built-in handler for `POST /register` when `onRegister` is omitted (never in Resource Server mode). It requires `email` and `password` (`400 INVALID_INPUT` otherwise), refuses an address that `userStore.findByEmail` already finds (`409 USER_EXISTS`, nothing created), hashes the password and stores an allow-list of fields: `email`, the password hash, and `firstName` / `lastName` when they are strings. Every other field of the request body is dropped. Without `onRegister` or `defaultRegister` the route is not mounted, as in 1.9.0; the built-in UI and the OpenAPI spec follow the same rule.
 
 #### Event publication
 - **Automatic event publication** — when an `AuthEventBus` is passed (`RouterOptions.eventBus`, `AdminOptions.eventBus`, or `AuthConfiguratorOptions.eventBus`), the auth router publishes login success/failure, logout, session rotation, registration, 2FA enable/disable, password change, email verification, email change, account deletion and OAuth success/conflict events, and the admin router publishes `ROLE_ASSIGNED` / `ROLE_REVOKED`. `AuthConfigurator.promoteToAdmin()` / `revokeAdmin()` publish `ROLE_ASSIGNED` / `ROLE_REVOKED` as well (no request context). Router payloads include `ip`, `userAgent` and `correlationId` (`X-Correlation-Id`, kept only when it is 1–128 characters of `[A-Za-z0-9_.:-]`). A client-supplied `email` is kept only as a string of at most 320 characters, `AUTH_OAUTH_CONFLICT` carries `provider`, `email` and `providerAccountId` only, and the admin router's `ROLE_ASSIGNED` / `ROLE_REVOKED` carry the acting admin as `data.actorId`. A listener that throws is reported on `stderr` and does not fail the request.
@@ -29,11 +29,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - **`TokenService.generateTempToken()` / `verifyTempToken()`** — mint and verify the 2FA step-up token (`tempToken`, 5 minutes, `purpose: '2fa'` claim). `verifyTempToken` accepts only that token.
 
 #### Tests
-- `tests/dx-improvements.test.ts`, `tests/register-default-handler.test.ts` (`REGRESSION-REGISTER-MASS-ASSIGNMENT`) and `tests/router-events.test.ts` (event payloads), plus event-publication, built-in register handler and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
+- `tests/dx-improvements.test.ts`, `tests/register-default-handler.test.ts` (`REGRESSION-REGISTER-MASS-ASSIGNMENT`, `REGRESSION-REGISTER-EXISTING-EMAIL`) and `tests/router-events.test.ts` (event payloads), plus event-publication, built-in register handler and `sseDistributor` coverage in `auth.router`, `auth-flow-improvements`, `new-features`, `swagger` and `tools` suites.
 - `tests/two-factor-token.test.ts` (`REGRESSION-2FA-ADMIN-GUARD`), `tests/admin-guard.test.ts` (`REGRESSION-ADMIN-GUARD-HTML-ACCEPT`, empty `adminSecret`), `tests/admin-promote.test.ts`, `tests/session-check.test.ts`, `tests/cookie-max-age.test.ts`, `tests/logout-bearer.test.ts`, `tests/link-request-csrf.test.ts` and `tests/cors-headers.test.ts`.
 
 #### Docs
-- README: `buildAllRouters()` quick start, "Admin UI" and "Two login endpoints, two audiences".
+- README: `buildAllRouters()` quick start, "Admin UI", "Two login endpoints, two audiences" and "Ecosystem".
 - README.detailed: `buildAllRouters()`, admin policy and `AuthorizedAdminUser`, `promoteToAdmin`/`revokeAdmin`, the promote endpoint, automatic event publication, `USER_EMAIL_CHANGED`, `IUserStore.update?()`, `sseDistributor` and the built-in register handler (`defaultRegister`).
 
 ### Changed
@@ -47,11 +47,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - `POST <admin>/users/:id/promote` (without `/api`) — alias of `POST <admin>/api/users/:id/promote`, with the same rate limiter, guard, JSON-body requirement and answers. Use the `/api` path.
 
 ### Removed
-- Documentation of the retired MCP server.
+- Documentation of the retired MCP server, and its npm keywords (`mcp`, `model-context-protocol`, `cursor-mcp`, `vscode-mcp`, `antigravity-mcp`).
+- The `sync:public` npm script: development now happens in this repository.
 
 ### Fixed
 - `session.checkOn: 'allcalls'` now applies to the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...): the router passes its `sessionStore` to its access-token middleware, so a revoked session gets `401 SESSION_REVOKED` on the next call, and the session's last-active time is updated there.
-- The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes.
+- The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes, so with `csrf.enabled` and a longer `accessTokenExpiresIn` a state-changing request made after 15 minutes gets `403 CSRF_INVALID` until the client refreshes (see README.detailed, CSRF Protection).
 - `POST /link-request` exempts requests with an `Authorization: Bearer` credential from its CSRF check, like `auth.middleware()`, and then identifies the user from the bearer token only. Cookie-authenticated and anonymous conflict-linking requests are still checked. (#4)
 - The auth router's CORS layer allows the `X-Auth-Strategy` request header, so browser apps on a listed origin can use bearer mode. (#5)
 - The Next.js demo's edge middleware and the edge-middleware snippet in `examples/nextjs-integration.example.ts` check the token expiry and refuse tokens that are not sessions (`purpose` claim), not only the signature.
@@ -409,3 +410,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 | 1.7.0 | 2026-03-30 | Framework-agnostic HTTP types, Fastify adapter |
 | 1.8.x | 2026-03-30–04-18 | Multi-channel notify, session-based admin auth, admin UI improvements |
 | 1.9.0 | 2026-04-29 | IdP mode (RS256 + JWKS), Resource Server middleware, Flutter client support |
+| 1.10.0 | 2026-09-25 | `buildAllRouters()`, admin promote/revoke, automatic event publication, 2FA and admin token hardening |

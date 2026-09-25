@@ -409,6 +409,8 @@ app.use('/auth', createAuthRouter(userStore, config, {
 
 For a listed origin the router answers the preflight itself and allows the methods `GET,POST,PUT,PATCH,DELETE,OPTIONS`, credentials, and the request headers `Content-Type`, `Authorization`, `X-CSRF-Token`, `X-Api-Key` and `X-Auth-Strategy` (so a browser app on another origin can use [bearer mode](#bearer-token-strategy)).
 
+List only origins you trust with the session. When the browser sends the session cookies along with a listed origin's requests (a same-site sibling such as `app.example.com` next to `auth.example.com`, or any origin under `cookieOptions.sameSite: 'none'`), script on that origin can call `POST /auth/refresh` with `X-Auth-Strategy: bearer` and read the rotated `accessToken` and `refreshToken` from the response body, even though the cookies themselves are `HttpOnly`.
+
 ### Dynamic Email Links (`siteUrl`)
 When the router receives a request from an allowed origin, it dynamically sets that origin as the base URL for any emails sent during that request (like magic links or password resets). This ensures users are redirected back to the exact frontend they initiated the request from.
 
@@ -1207,8 +1209,9 @@ app.use('/auth', auth.router({ defaultRegister: true }));
 The handler:
 
 1. requires `email` and `password` to be non-empty strings — otherwise `400` with code `INVALID_INPUT`;
-2. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
-3. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
+2. refuses an address that `userStore.findByEmail` already finds — `409 {"error":"User already exists","code":"USER_EXISTS"}`, and nothing is created. The address is compared as sent, like `POST /login` does. The check is not atomic, so a store that must never hold two accounts under one address should also enforce a unique e-mail;
+3. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
+4. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
 
 The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active. At startup the router writes an `INFO` line to `stderr` when the built-in handler is mounted, or a `WARN` line when `defaultRegister` is set but `userStore.create` is not implemented. To accept other fields, provide an `onRegister` callback that picks them explicitly, as in the example above.
 
@@ -1751,6 +1754,8 @@ await authFetch('/auth/logout', { method: 'POST' });
 > **Note:** CSRF protection is only meaningful for cookie-based authentication. If you use `Authorization: Bearer` headers instead of cookies, you do not need CSRF protection.
 
 > **Note:** The `csrf-token` cookie inherits `sameSite` and `secure` from `cookieOptions`. In cross-origin setups (`sameSite: 'none', secure: true`), the CSRF cookie is automatically marked `Secure`. Verify that it remains readable from JavaScript (`httpOnly` is always `false` for the CSRF cookie).
+
+> **Note:** The `csrf-token` cookie lives 15 minutes, whatever `accessTokenExpiresIn` says, while the `accessToken` cookie lives as long as its token. With an access token longer than 15 minutes the CSRF cookie can expire first, and the next state-changing request gets `403 CSRF_INVALID`. Any request to the auth router re-issues a missing `csrf-token` cookie, and `POST /auth/refresh` sets a fresh one, so a client that answers `CSRF_INVALID` by refreshing and retrying once recovers. The served `auth.js` does this for requests outside the auth router.
 
 ## Bearer Token Strategy
 
@@ -2941,7 +2946,8 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 
 > **`POST /admin/api/users/:id/promote`**: through `buildAllRouters()` the full path is `/auth/admin/api/users/:id/promote`. The same route without the `/api` segment, `POST /admin/users/:id/promote`, is a **deprecated** alias kept for compatibility: same guard, same answers; use the `/api` path in new code. Both run the admin `rateLimiter` (when set) and the admin guard, and require a JSON body (`Content-Type: application/json`; `{}` is enough) — any other content type, or no body, gets `415`. Then:
 > - `method: 'role'` (default) — `rbacStore.createRole('admin')` + `rbacStore.addRoleToUser(id, 'admin')`; `404` when `rbacStore` is not configured;
-> - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented.
+> - `method: 'flag'` — `userStore.update(id, { isAdmin: true })`; `501` when `IUserStore.update` is not implemented;
+> - any other `method` (another string, a number, an array, ...) — `400 { "error": "method must be \"flag\" or \"role\"" }`, and nothing is assigned. An absent or `null` `method` is the default, `'role'`.
 >
 > Success: `200 { "success": true, "method": "role" }` (or `"flag"`), plus a `ROLE_ASSIGNED` event when `eventBus` is set. The role-assignment endpoints publish events too: `POST /admin/api/users/:id/roles` → `ROLE_ASSIGNED`, `DELETE /admin/api/users/:id/roles/:role` → `ROLE_REVOKED`.
 
@@ -3378,6 +3384,7 @@ Success events are published after the operation has completed. Router events ca
 | `POST /2fa/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'totp' }` |
 | `POST /magic-link/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'magic-link' }` |
 | `POST /sms/verify` | `AUTH_LOGIN_SUCCESS` | `{ method: 'sms' }` |
+| `POST /link-verify` with `loginAfterLinking: true` | `AUTH_LOGIN_SUCCESS` | `{ method: 'link-verify' }` — the session is issued without a second factor |
 | `GET /oauth/:provider/callback` (login completed) | `AUTH_OAUTH_SUCCESS` | `{ provider, redirectTo }` — `provider` is the user record's `loginProvider` when set, otherwise the provider of this login |
 | `GET /oauth/:provider/callback` (account conflict) | `AUTH_OAUTH_CONFLICT` | `{ provider, email, providerAccountId }` — the two conflict fields are picked from the `OAUTH_ACCOUNT_CONFLICT` error's `data` when they are strings; nothing else from it is copied |
 | `POST /logout` | `AUTH_LOGOUT` | — |

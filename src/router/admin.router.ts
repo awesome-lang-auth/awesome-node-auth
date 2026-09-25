@@ -1079,7 +1079,13 @@ export function createAdminRouter(
   // the same chain.  requireJsonBody is the CSRF defence of both (see above).
   const promoteHandler: RequestHandler = async (req: Request, res: Response) => {
     const userId = req.params['id'] as string;
-    const method = (req.body as { method?: 'flag' | 'role' } | undefined)?.method ?? 'role';
+    const method: unknown = (req.body as { method?: unknown } | undefined)?.method ?? 'role';
+    // Refuse an unknown method, like promoteToAdmin(): falling back to the role
+    // would grant something the caller did not ask for.
+    if (method !== 'flag' && method !== 'role') {
+      res.status(400).json({ error: 'method must be "flag" or "role"' });
+      return;
+    }
     try {
       if (method === 'flag') {
         const writableUserStore = userStore as AdminWritableUserStore;

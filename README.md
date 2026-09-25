@@ -210,8 +210,8 @@ The admin sign-in form checks the password only, with no second factor, and its 
 | Runtime | Repository | Status |
 |---|---|---|
 | Node.js | [`awesome-node-auth`](https://github.com/nik2208/awesome-node-auth) (this repo) | npm `awesome-node-auth` |
-| Go | [`awesome-go-auth`](https://github.com/nik2208/awesome-go-auth) | Go module, 0.11.x · 1.0 in progress |
-| AWS Lambda | [`awesome-lambda-auth`](https://github.com/nik2208/awesome-lambda-auth) | Preview |
+| Go | [`awesome-go-auth`](https://github.com/awesome-lang-auth/awesome-go-auth) | Go module, 0.11.x · 1.0 in progress |
+| AWS Lambda | [`awesome-lambda-auth`](https://github.com/awesome-lang-auth/awesome-lambda-auth) | Preview |
 | Python | [`awesome-python-auth`](https://github.com/awesome-lang-auth/awesome-python-auth) | PyPI `awesome-python-auth` 1.1.0 |
 | Rust | [`awesome-rust-auth`](https://github.com/awesome-lang-auth/awesome-rust-auth) | Git only (not on crates.io) |
 | Dart | [`awesome-dart-auth`](https://github.com/awesome-lang-auth/awesome-dart-auth) | Git only (not on pub.dev) |
@@ -220,8 +220,8 @@ The admin sign-in form checks the password only, with no second factor, and its 
 
 | Client | Package | Status |
 |---|---|---|
-| Angular | [`ng-awesome-node-auth`](https://github.com/nik2208/ng-awesome-node-auth) | npm · to be renamed `@awesome-lang-auth/angular` |
-| Flutter | [`awesome_node_auth_flutter`](https://github.com/nik2208/awesome-node-auth-flutter) | pub.dev · to be renamed `awesome_flutter_auth` |
+| Angular | [`ng-awesome-node-auth`](https://github.com/awesome-lang-auth/awesome-angular-auth) | npm · to be renamed `@awesome-lang-auth/angular` |
+| Flutter | [`awesome_node_auth_flutter`](https://github.com/awesome-lang-auth/awesome-flutter-auth) | pub.dev · to be renamed `awesome_flutter_auth` |
 | React | [`@awesome-lang-auth/react`](https://github.com/awesome-lang-auth/awesome-react-auth) | npm 0.1.0 |
 | Browser | `auth.js` | Served by this library at `<apiPrefix>/ui/auth.js` when `ui.enabled` is set — see [Including `auth.js`](./README.detailed.md#including-authjs) |
 
