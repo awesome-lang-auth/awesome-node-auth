@@ -157,6 +157,29 @@ describe('DX improvements', () => {
     expect(events).toContain(AuthEventNames.ROLE_REVOKED);
   });
 
+  it('revokeAdmin fails closed when a step of the method cannot run', async () => {
+    const bus = new AuthEventBus();
+    const events: string[] = [];
+    bus.onEvent('*', (payload) => events.push(payload.event));
+
+    // 'both' without IUserStore.update: throws before removing the role, no event.
+    const { update: _update, ...storeWithoutUpdate } = makeUserStore(adminUser);
+    const rbacStore = makeRbacStore();
+    const auth = new AuthConfigurator(config, storeWithoutUpdate as IUserStore, { eventBus: bus });
+    await expect(auth.revokeAdmin('user-1', { method: 'both', rbacStore }))
+      .rejects.toThrow('IUserStore.update is required for revokeAdmin({ method: "both" })');
+    expect(rbacStore.removeRoleFromUser).not.toHaveBeenCalled();
+
+    // 'both' without rbacStore: throws before clearing the flag, no event.
+    const userStore = makeUserStore(adminUser);
+    const auth2 = new AuthConfigurator(config, userStore, { eventBus: bus });
+    await expect(auth2.revokeAdmin('user-1', { method: 'both' }))
+      .rejects.toThrow('rbacStore is required for revokeAdmin({ method: "both" })');
+    expect(userStore.update).not.toHaveBeenCalled();
+
+    expect(events).toEqual([]);
+  });
+
   it('POST /users/:id/promote promotes through the admin router', async () => {
     const userStore = makeUserStore(adminUser);
     const rbacStore: IRolesPermissionsStore = {

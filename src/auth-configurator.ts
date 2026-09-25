@@ -112,22 +112,24 @@ export class AuthConfigurator {
     options: { method?: 'flag' | 'role' | 'both'; rbacStore?: IRolesPermissionsStore } = {},
   ): Promise<void> {
     const method = options.method ?? 'role';
-    if ((method === 'flag' || method === 'both')) {
-      const writableUserStore = this.userStore as WritableUserStore;
-      if (typeof writableUserStore.update !== 'function') {
-        if (method === 'flag') {
-          throw new Error('IUserStore.update is required for revokeAdmin({ method: "flag" })');
-        }
-      } else {
-        await writableUserStore.update(userId, { isAdmin: false });
-      }
+    const clearFlag = method === 'flag' || method === 'both';
+    const removeRole = method === 'role' || method === 'both';
+    const writableUserStore = this.userStore as WritableUserStore;
+
+    // Check every prerequisite before changing anything: a revocation must
+    // fail closed, never half-succeed or report a step that did not run.
+    if (clearFlag && typeof writableUserStore.update !== 'function') {
+      throw new Error(`IUserStore.update is required for revokeAdmin({ method: "${method}" })`);
+    }
+    if (removeRole && !options.rbacStore) {
+      throw new Error(`rbacStore is required for revokeAdmin({ method: "${method}" })`);
     }
 
-    if ((method === 'role' || method === 'both')) {
-      if (!options.rbacStore) {
-        throw new Error(`rbacStore is required for revokeAdmin({ method: "${method}" })`);
-      }
-      await options.rbacStore.removeRoleFromUser(userId, 'admin');
+    if (clearFlag) {
+      await writableUserStore.update!(userId, { isAdmin: false });
+    }
+    if (removeRole) {
+      await options.rbacStore!.removeRoleFromUser(userId, 'admin');
     }
 
     this.options.eventBus?.publish(AuthEventNames.ROLE_REVOKED, {
