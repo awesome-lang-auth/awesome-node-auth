@@ -495,8 +495,8 @@ const config: AuthConfig = {
   },
 
   // Session Strategy (v1.5.0) — see “Session Management” section
-  sessionStrategy: {
-    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'none')
+  session: {
+    checkOn: 'refresh', // 'none' | 'refresh' | 'allcalls' (default: 'refresh')
   },
 
   // Built-in UI configuration
