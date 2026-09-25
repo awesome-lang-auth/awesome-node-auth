@@ -39,15 +39,10 @@
     "flutter",
     "bearer token",
     "sms",
-    "mcp",
-    "model-context-protocol",
-    "cursor-mcp",
     "event-bus",
     "pub-sub",
     "message-queue",
-    "redis",
-    "vscode-mcp",
-    "antigravity-mcp"
+    "redis"
   ],
   "author": "Nicola Brecciaroli",
   "license": "MIT",

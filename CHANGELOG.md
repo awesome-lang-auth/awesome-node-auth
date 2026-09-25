@@ -38,6 +38,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 - The admin panel sign-in form points end users to `/auth/ui/login`.
 - `package-lock.json` refreshed within the existing dependency ranges.
 
+### Removed
+- Documentation of the retired MCP server.
+
 ### Security
 - `POST /register`: `config.email.sendWelcome(to, data)` no longer receives the plaintext `password` in `data`, with a custom `onRegister` as well as with the built-in handler.
 - The built-in register handler is opt-in (`defaultRegister`) and persists an allow-list of fields only.

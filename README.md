@@ -83,7 +83,6 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Event-driven** | `AuthEventBus` · SSE push · inbound/outbound webhooks · telemetry |
 | **API keys** | M2M bcrypt-hashed keys with scopes, expiry, IP allowlist and audit log |
 | **OpenAPI / Swagger** | Auto-generated specs for auth, admin and tools routers |
-| **MCP server** | `awesome-node-auth-mcp-server` — Cursor/VS Code integration for code generation |
 
 ---
 
@@ -197,9 +196,10 @@ They are intentionally different flows. If you mount the admin UI for operators,
 | **Full reference** | [README.detailed.md](./README.detailed.md) |
 | **Wiki / Guides** | [awesomenodeauth.com](https://awesomenodeauth.com) |
 | **Changelog** | [CHANGELOG.md](./CHANGELOG.md) |
-| **MCP server** | [mcp-server/README.md](https://www.awesomenodeauth.com/docs/mcp-server/) |
 | **Demo apps** | [demo/](./demo) |
 | **Framework examples** | [examples/](./examples) |
+
+> The companion MCP server (`awesome-node-auth-mcp-server`) has been retired and is no longer available.
 
 ---
 

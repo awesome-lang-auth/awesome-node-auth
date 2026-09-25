@@ -4015,54 +4015,6 @@ The table below maps SuperTokens recipes to awesome-node-auth equivalents so you
 
 > **Roadmap ideas:** SCIM provisioning, passkey (WebAuthn) support.
 
-## GitHub Sponsorship Webhook (MCP Server)
-
-The MCP HTTP server can automatically assign a **pro plan** to users who sponsor the project on GitHub, and revoke it when the sponsorship is cancelled.
-
-### How it works
-
-1. A GitHub sponsorship event (created, cancelled, tier changed, etc.) is POSTed to a configurable endpoint on the MCP server.
-2. The server verifies the request using the `X-Hub-Signature-256` HMAC header and your `GITHUB_WEBHOOK_SECRET`.
-3. The matched internal user (looked up by GitHub OAuth provider ID or email) has the configured plan (`GITHUB_SPONSOR_PLAN_ID`, default `"pro"`) assigned or revoked automatically.
-4. If the sponsor has not yet registered, a **pending assignment** is stored and applied the next time a matching user is created.
-
-### Configuration
-
-Set the following environment variables in the MCP server `.env`:
-
-```env
-# Shared secret — configure the same value in GitHub → Settings → Webhooks
-GITHUB_WEBHOOK_SECRET=your-random-secret-here
-
-# Plan ID to assign to sponsors (must match a plan in your platform_plans collection)
-GITHUB_SPONSOR_PLAN_ID=pro
-
-# Endpoint where GitHub will POST sponsorship events (configurable)
-SPONSORSHIP_WEBHOOK_PATH=/webhooks/github/notify_sponsorship
-```
-
-### GitHub Webhook setup
-
-1. Go to **GitHub → Your profile → Sponsorships → Settings → Webhooks** (or your organization’s sponsorship settings).
-2. Add a new webhook:
-   - **Payload URL:** `https://<your-mcp-server-domain>/webhooks/github/notify_sponsorship`
-   - **Content type:** `application/json`
-   - **Secret:** the value of `GITHUB_WEBHOOK_SECRET`
-   - **Events:** select **Sponsorships**
-
-### Supported actions
-
-| Action | Effect |
-|--------|--------|
-| `created` | Assign pro plan to the sponsor |
-| `tier_changed` | Re-assign pro plan (tier upgrade/downgrade) |
-| `cancelled` | Revoke pro plan |
-| `pending_cancellation` | No change (grace period) |
-| `pending_tier_change` | No change |
-| `edited` | No change |
-
-See the [GitHub sponsorship webhook documentation](https://docs.github.com/en/webhooks/webhook-events-and-payloads#sponsorship) for full payload details.
-
 ## License
 
 MIT
