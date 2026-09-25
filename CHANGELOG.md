@@ -46,6 +46,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 ### Deprecated
 - `POST <admin>/users/:id/promote` (without `/api`) — alias of `POST <admin>/api/users/:id/promote`, with the same rate limiter, guard, JSON-body requirement and answers. Use the `/api` path.
 
+### Removed
+- Documentation of the retired MCP server.
+
 ### Fixed
 - `session.checkOn: 'allcalls'` now applies to the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...): the router passes its `sessionStore` to its access-token middleware, so a revoked session gets `401 SESSION_REVOKED` on the next call, and the session's last-active time is updated there.
 - The `accessToken` and `refreshToken` cookies live as long as the tokens they carry (`accessTokenExpiresIn` / `refreshTokenExpiresIn`) instead of a fixed 15 minutes / 7 days. The defaults are unchanged (`Max-Age=900` / `604800`); the CSRF cookie keeps 15 minutes.

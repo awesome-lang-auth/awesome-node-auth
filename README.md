@@ -70,7 +70,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Auth strategies** | Email/password · OAuth 2.0 (Google, GitHub, custom) · Magic links · SMS OTP · TOTP 2FA |
 | **Token management** | HttpOnly-cookie or Bearer mode · automatic access/refresh rotation · `__Host-`/`__Secure-` cookie prefixes |
 | **Identity Provider (IdP) mode** *(v1.9)* | RS256-signed JWTs · public JWKS endpoint (`/.well-known/jwks.json`) · Resource Server middleware · zero new dependencies |
-| **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · L1/L2 caching decorators |
+| **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · works behind your own L1/L2 cache layers |
 | **Dynamic email templates** *(v1.6)* | `ITemplateStore` — per-language mail templates + UI i18n with safe hardcoded fallback · built-in `MemoryTemplateStore` |
 | **CSRF protection** | Double-submit cookie pattern · `__Host-` prefix hardening against cookie-tossing |
 | **Account management** | Registration · change email/password · account deletion · email verification (none/lazy/strict) |
@@ -79,11 +79,10 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Multi-tenancy** | `ITenantStore` for isolated tenant apps |
 | **Admin panel** | Full-featured admin UI: user management, sessions, roles, tenants, metadata, API keys, webhooks |
 | **Built-in UI** | Zero-dependency HTML/CSS/JS login UI served at `<apiPrefix>/ui/` · **headless mode** for SPAs |
-| **Client libraries** | `ng-awesome-node-auth` (Angular) · `awesome-node-auth-flutter` (Flutter/Dart) |
+| **Client libraries** | Angular · Flutter · React · served `auth.js` — see [Ecosystem](#ecosystem) |
 | **Event-driven** | `AuthEventBus` · SSE push · inbound/outbound webhooks · telemetry |
 | **API keys** | M2M bcrypt-hashed keys with scopes, expiry, IP allowlist and audit log |
 | **OpenAPI / Swagger** | Auto-generated specs for auth, admin and tools routers |
-| **MCP server** | `awesome-node-auth-mcp-server` — Cursor/VS Code integration for code generation |
 
 ---
 
@@ -148,15 +147,25 @@ GET    /.well-known/jwks.json                                                   
 ## Optional Stores Snapshot
 
 ```typescript
-const auth = new AuthConfigurator(config, userStore, {
-  sessionStore,      // ISessionStore       — stateful sessions + device management
-  metadataStore,     // IUserMetadataStore  — arbitrary per-user key/value pairs
-  rbacStore,         // IRolesPermissionsStore
-  tenantStore,       // ITenantStore
-  pendingLinkStore,  // IPendingLinkStore   — OAuth account-linking conflicts
-  templateStore,     // ITemplateStore      — dynamic email templates + UI i18n (v1.6)
-});
+const auth = new AuthConfigurator(
+  { ...config, templateStore }, // ITemplateStore — dynamic email templates + UI i18n (v1.6), part of AuthConfig
+  userStore,
+  { eventBus },                 // optional; the third argument only accepts { eventBus }
+);
+
+app.use('/auth', auth.router({
+  sessionStore,        // ISessionStore        — stateful sessions + device management
+  metadataStore,       // IUserMetadataStore   — arbitrary per-user key/value pairs
+  rbacStore,           // IRolesPermissionsStore
+  tenantStore,         // ITenantStore
+  linkedAccountsStore, // ILinkedAccountsStore — several OAuth providers per user
+  pendingLinkStore,    // IPendingLinkStore    — OAuth account-linking conflicts (with linkedAccountsStore)
+}));
+
+app.get('/protected', auth.middleware(), handler); // uses the sessionStore passed to router() above (call router() first)
 ```
+
+With `buildAllRouters()`, pass the same stores as `auth: { … }`; the admin panel takes its own in `admin: { … }` (see [Admin UI](#admin-ui)).
 
 Full configuration reference → [README.detailed.md § Configuration](./README.detailed.md#configuration)
 
@@ -192,6 +201,32 @@ The admin sign-in form checks the password only, with no second factor, and its 
 
 ---
 
+## Ecosystem
+
+`awesome-node-auth` is the reference server of a family of libraries that port its HTTP API to other runtimes, plus client libraries for that API.
+
+**Servers**
+
+| Runtime | Repository | Status |
+|---|---|---|
+| Node.js | [`awesome-node-auth`](https://github.com/nik2208/awesome-node-auth) (this repo) | npm `awesome-node-auth` |
+| Go | [`awesome-go-auth`](https://github.com/nik2208/awesome-go-auth) | Go module, 0.11.x · 1.0 in progress |
+| AWS Lambda | [`awesome-lambda-auth`](https://github.com/nik2208/awesome-lambda-auth) | Preview |
+| Python | [`awesome-python-auth`](https://github.com/awesome-lang-auth/awesome-python-auth) | PyPI `awesome-python-auth` 1.1.0 |
+| Rust | [`awesome-rust-auth`](https://github.com/awesome-lang-auth/awesome-rust-auth) | Git only (not on crates.io) |
+| Dart | [`awesome-dart-auth`](https://github.com/awesome-lang-auth/awesome-dart-auth) | Git only (not on pub.dev) |
+
+**Clients**
+
+| Client | Package | Status |
+|---|---|---|
+| Angular | [`ng-awesome-node-auth`](https://github.com/nik2208/ng-awesome-node-auth) | npm · to be renamed `@awesome-lang-auth/angular` |
+| Flutter | [`awesome_node_auth_flutter`](https://github.com/nik2208/awesome-node-auth-flutter) | pub.dev · to be renamed `awesome_flutter_auth` |
+| React | [`@awesome-lang-auth/react`](https://github.com/awesome-lang-auth/awesome-react-auth) | npm 0.1.0 |
+| Browser | `auth.js` | Served by this library at `<apiPrefix>/ui/auth.js` when `ui.enabled` is set — see [Including `auth.js`](./README.detailed.md#including-authjs) |
+
+---
+
 ## Documentation
 
 | Resource | Link |
@@ -199,9 +234,10 @@ The admin sign-in form checks the password only, with no second factor, and its 
 | **Full reference** | [README.detailed.md](./README.detailed.md) |
 | **Wiki / Guides** | [awesomenodeauth.com](https://awesomenodeauth.com) |
 | **Changelog** | [CHANGELOG.md](./CHANGELOG.md) |
-| **MCP server** | [mcp-server/README.md](https://www.awesomenodeauth.com/docs/mcp-server/) |
 | **Demo apps** | [demo/](./demo) |
 | **Framework examples** | [examples/](./examples) |
+
+> The companion MCP server (`awesome-node-auth-mcp-server`) has been retired and is no longer available.
 
 ---
 

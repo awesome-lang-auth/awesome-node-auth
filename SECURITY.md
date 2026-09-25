@@ -29,7 +29,7 @@ Please include:
 
 ## Scope
 
-This policy covers the `awesome-node-auth` npm package and the companion MCP server in this repository. It does **not** cover third-party dependencies — please report those directly to their respective maintainers.
+This policy covers the `awesome-node-auth` npm package and the code in this repository. It does **not** cover third-party dependencies — please report those directly to their respective maintainers.
 
 ## Security best practices for users
 
