@@ -1,0 +1,35 @@
+{
+  "name": "awesome-node-auth",
+  "version": "1.10.1",
+  "description": "Renamed to @awesome-lang-auth/node. This package only re-exports @awesome-lang-auth/node; install that instead.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "type": "commonjs",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/awesome-lang-auth/awesome-node-auth.git",
+    "directory": "legacy/awesome-node-auth"
+  },
+  "bugs": {
+    "url": "https://github.com/awesome-lang-auth/awesome-node-auth/issues"
+  },
+  "homepage": "https://www.awesomenodeauth.com/",
+  "keywords": [
+    "awesome-node-auth",
+    "awesome-lang-auth",
+    "auth",
+    "authentication",
+    "jwt"
+  ],
+  "author": "Nicola Brecciaroli",
+  "license": "MIT",
+  "dependencies": {
+    "@awesome-lang-auth/node": "^1.10.1"
+  }
+}
