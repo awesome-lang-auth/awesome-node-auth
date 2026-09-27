@@ -1,11 +1,11 @@
 # awesome-node-auth
 
-![npm version](https://img.shields.io/npm/v/awesome-node-auth)
+![npm version](https://img.shields.io/npm/v/@awesome-lang-auth/node)
 ![license](https://img.shields.io/github/license/nik2208/awesome-node-auth)
 ![github stars](https://img.shields.io/github/stars/nik2208/awesome-node-auth)
 [![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/nik2208)
 
-[![NPM](https://nodei.co/npm/awesome-node-auth.png?downloads=true&downloadRank=true)](https://nodei.co/npm/awesome-node-auth/)
+[![NPM](https://nodei.co/npm/@awesome-lang-auth/node.png?downloads=true&downloadRank=true)](https://nodei.co/npm/@awesome-lang-auth/node/)
 
 A production-ready, **database-agnostic** JWT authentication library for Node.js written in TypeScript. Drop-in auth for Express, NestJS, Next.js, Fastify and any other Node.js framework — connect to any database through a single interface.
 
@@ -16,14 +16,16 @@ A production-ready, **database-agnostic** JWT authentication library for Node.js
 ## Installation
 
 ```bash
-npm install awesome-node-auth
+npm install @awesome-lang-auth/node
 ```
+
+> Up to 1.10.0 the package was published as `awesome-node-auth`. To migrate, replace the dependency with `@awesome-lang-auth/node` and change your imports from `'awesome-node-auth'` to `'@awesome-lang-auth/node'`; the API is the same.
 
 ## Quick Start
 
 ```typescript
 import express from 'express';
-import { AuthConfigurator, AuthEventBus } from 'awesome-node-auth';
+import { AuthConfigurator, AuthEventBus } from '@awesome-lang-auth/node';
 import { myUserStore } from './my-user-store'; // your IUserStore impl
 
 const app = express();
@@ -116,7 +118,7 @@ const auth = new AuthConfigurator({
 }, userStore);
 
 // Resource Server (downstream)
-import { createJwksAuthMiddleware } from 'awesome-node-auth';
+import { createJwksAuthMiddleware } from '@awesome-lang-auth/node';
 
 app.use('/api', createJwksAuthMiddleware({
   jwksUrl: 'https://auth.myplatform.com/.well-known/jwks.json',
@@ -209,7 +211,7 @@ The admin sign-in form checks the password only, with no second factor, and its 
 
 | Runtime | Repository | Status |
 |---|---|---|
-| Node.js | [`awesome-node-auth`](https://github.com/nik2208/awesome-node-auth) (this repo) | npm `awesome-node-auth` |
+| Node.js | [`awesome-node-auth`](https://github.com/nik2208/awesome-node-auth) (this repo) | npm `@awesome-lang-auth/node` |
 | Go | [`awesome-go-auth`](https://github.com/awesome-lang-auth/awesome-go-auth) | Go module, 0.11.x · 1.0 in progress |
 | AWS Lambda | [`awesome-lambda-auth`](https://github.com/awesome-lang-auth/awesome-lambda-auth) | Preview |
 | Python | [`awesome-python-auth`](https://github.com/awesome-lang-auth/awesome-python-auth) | PyPI `awesome-python-auth` 1.1.0 |

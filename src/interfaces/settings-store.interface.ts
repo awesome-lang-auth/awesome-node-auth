@@ -7,7 +7,7 @@
  *
  * @example
  * ```typescript
- * import { ISettingsStore, AuthSettings } from 'awesome-node-auth';
+ * import { ISettingsStore, AuthSettings } from '@awesome-lang-auth/node';
  *
  * export class MySettingsStore implements ISettingsStore {
  *   private settings: AuthSettings = {};

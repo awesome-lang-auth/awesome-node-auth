@@ -109,7 +109,7 @@ export interface ToolsRouterOptions {
  *
  * @example
  * ```ts
- * import { createToolsRouter } from 'awesome-node-auth';
+ * import { createToolsRouter } from '@awesome-lang-auth/node';
  *
  * app.use('/tools', createToolsRouter(tools, { authMiddleware: auth.middleware() }));
  * ```

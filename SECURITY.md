@@ -29,11 +29,11 @@ Please include:
 
 ## Scope
 
-This policy covers the `awesome-node-auth` npm package and the code in this repository. It does **not** cover third-party dependencies — please report those directly to their respective maintainers.
+This policy covers the `@awesome-lang-auth/node` npm package (formerly `awesome-node-auth`) and the code in this repository. It does **not** cover third-party dependencies — please report those directly to their respective maintainers.
 
 ## Security best practices for users
 
 - Never commit `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, or other secrets to source control.
 - Rotate API keys and JWT secrets if you suspect they have been exposed.
-- Keep the library updated to receive security patches (`npm update awesome-node-auth`).
+- Keep the library updated to receive security patches (`npm update @awesome-lang-auth/node`).
 - Review the [hardening guide](/docs/advanced) in the documentation.

@@ -13,7 +13,7 @@
  *
  * @example
  * ```typescript
- * import { webhookAction } from 'awesome-node-auth';
+ * import { webhookAction } from '@awesome-lang-auth/node';
  *
  * class UserService {
  *   \@webhookAction({

@@ -15,7 +15,7 @@ import { Tenant } from '../models/tenant.model';
  *
  * @example
  * ```typescript
- * import { ITenantStore } from 'awesome-node-auth';
+ * import { ITenantStore } from '@awesome-lang-auth/node';
  *
  * export class MyTenantStore implements ITenantStore {
  *   async createTenant(data) {

@@ -16,7 +16,7 @@ const express      = require('express');
 const cookieParser = require('cookie-parser');
 const path         = require('path');
 
-const { AuthConfigurator, createAdminRouter, PasswordService, AuthError, MemoryTemplateStore } = require('awesome-node-auth');
+const { AuthConfigurator, createAdminRouter, PasswordService, AuthError, MemoryTemplateStore } = require('@awesome-lang-auth/node');
 
 const passwordService = new PasswordService();
 

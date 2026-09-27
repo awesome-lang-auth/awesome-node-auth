@@ -80,7 +80,9 @@ export function buildUiRouter(options: UiRouterOptions): Router {
         path.resolve(_dirname, '../../ui-assets'), // alternate dist
         path.resolve(_dirname, '../ui/assets'), // src
         path.resolve(_dirname, '../../src/ui/assets'), // alternate src
-        path.resolve(process.cwd(), 'node_modules/awesome-node-auth/dist/ui-assets'), // dependency
+        path.resolve(process.cwd(), 'node_modules/@awesome-lang-auth/node/dist/ui-assets'), // dependency
+        path.resolve(process.cwd(), 'node_modules/@awesome-lang-auth/node/src/ui/assets'), // dependency src
+        path.resolve(process.cwd(), 'node_modules/awesome-node-auth/dist/ui-assets'), // dependency, pre-1.10.1 name
         path.resolve(process.cwd(), 'node_modules/awesome-node-auth/src/ui/assets'), // dependency src
     ];
 

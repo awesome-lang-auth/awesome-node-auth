@@ -29,7 +29,7 @@ declare global {
  *
  * @example
  * ```ts
- * import { createApiKeyMiddleware } from 'awesome-node-auth';
+ * import { createApiKeyMiddleware } from '@awesome-lang-auth/node';
  *
  * app.use('/tools', createApiKeyMiddleware(myApiKeyStore, { requiredScopes: ['tools:read'] }));
  * ```

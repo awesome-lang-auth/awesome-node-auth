@@ -28,7 +28,7 @@ What actually happens. Include error messages and stack traces.
 
 | Field | Value |
 |-------|-------|
-| `awesome-node-auth` version | |
+| `@awesome-lang-auth/node` (or `awesome-node-auth`) version | |
 | Node.js version | |
 | Framework | Express / NestJS / Next.js / other |
 | Database | |

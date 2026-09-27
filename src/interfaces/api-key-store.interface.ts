@@ -10,7 +10,7 @@ import { ApiKey } from '../models/api-key.model';
  *
  * @example
  * ```ts
- * import { IApiKeyStore } from 'awesome-node-auth';
+ * import { IApiKeyStore } from '@awesome-lang-auth/node';
  *
  * export class MyApiKeyStore implements IApiKeyStore {
  *   async save(key: ApiKey) {

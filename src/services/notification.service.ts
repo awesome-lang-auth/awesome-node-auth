@@ -72,7 +72,7 @@ export interface SendSmsOptions {
  *
  * @example
  * ```ts
- * import { NotificationService } from 'awesome-node-auth';
+ * import { NotificationService } from '@awesome-lang-auth/node';
  *
  * const notifications = new NotificationService({
  *   email: { endpoint: process.env.MAILER_ENDPOINT!, apiKey: process.env.MAILER_KEY!, from: 'no-reply@example.com' },

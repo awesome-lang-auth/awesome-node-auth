@@ -37,7 +37,7 @@ export interface AuthEventPayload {
  *
  * @example
  * ```ts
- * import { AuthEventBus, AuthEventNames } from 'awesome-node-auth';
+ * import { AuthEventBus, AuthEventNames } from '@awesome-lang-auth/node';
  *
  * const bus = new AuthEventBus();
  * bus.onEvent(AuthEventNames.AUTH_LOGIN_SUCCESS, (payload) => {

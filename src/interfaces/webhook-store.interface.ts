@@ -96,7 +96,7 @@ export interface OutgoingWebhookEvent {
  *
  * @example
  * ```typescript
- * import { IWebhookStore, WebhookConfig } from 'awesome-node-auth';
+ * import { IWebhookStore, WebhookConfig } from '@awesome-lang-auth/node';
  *
  * export class MyWebhookStore implements IWebhookStore {
  *   async findByEvent(event: string, tenantId?: string): Promise<WebhookConfig[]> {

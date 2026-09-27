@@ -1,10 +1,10 @@
 // ============================================================
-// MongoDB IUserStore — awesome-node-auth@1.10.10
+// MongoDB IUserStore — @awesome-lang-auth/node@^1.10.1
 // Uses the official mongodb Node.js driver.
 // Install: npm install mongodb
 // ============================================================
 
-import type { IUserStore, BaseUser } from 'awesome-node-auth';
+import type { IUserStore, BaseUser } from '@awesome-lang-auth/node';
 
 // ---- Document shape -------------------------------------------------------
 

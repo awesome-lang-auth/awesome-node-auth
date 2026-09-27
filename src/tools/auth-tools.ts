@@ -147,7 +147,7 @@ export interface NotifyOptions {
  * when disabled.
  *
  * ```ts
- * import { AuthTools, AuthEventBus } from 'awesome-node-auth';
+ * import { AuthTools, AuthEventBus } from '@awesome-lang-auth/node';
  *
  * const bus = new AuthEventBus();
  * const tools = new AuthTools(bus, {

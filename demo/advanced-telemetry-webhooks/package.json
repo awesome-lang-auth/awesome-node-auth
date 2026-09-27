@@ -9,7 +9,7 @@
     "dev": "ts-node src/index.ts"
   },
   "dependencies": {
-    "awesome-node-auth": "^1.9.0",
+    "@awesome-lang-auth/node": "^1.10.1",
     "express": "^5.0.0",
     "express-rate-limit": "^7.0.0",
     "mongodb": "^6.0.0"

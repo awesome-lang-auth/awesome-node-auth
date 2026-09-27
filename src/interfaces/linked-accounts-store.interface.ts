@@ -30,7 +30,7 @@ export interface LinkedAccount {
  *
  * @example
  * ```typescript
- * import { ILinkedAccountsStore, LinkedAccount } from 'awesome-node-auth';
+ * import { ILinkedAccountsStore, LinkedAccount } from '@awesome-lang-auth/node';
  *
  * export class MyLinkedAccountsStore implements ILinkedAccountsStore {
  *   async getLinkedAccounts(userId: string): Promise<LinkedAccount[]> {

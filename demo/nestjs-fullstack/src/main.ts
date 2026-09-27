@@ -50,7 +50,7 @@ import {
   AuthError,
   createAdminRouter,
   MemoryTemplateStore,
-} from 'awesome-node-auth';
+} from '@awesome-lang-auth/node';
 
 import { InMemoryUserStore } from './user-store';
 

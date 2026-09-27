@@ -13,7 +13,7 @@ import { SessionInfo } from '../models/session.model';
  *
  * @example
  * ```typescript
- * import { ISessionStore } from 'awesome-node-auth';
+ * import { ISessionStore } from '@awesome-lang-auth/node';
  *
  * export class MySessionStore implements ISessionStore {
  *   async createSession(info) {
