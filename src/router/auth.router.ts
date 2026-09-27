@@ -367,6 +367,44 @@ function decodeOAuthStateNonce(state: string | undefined): string | null {
   return typeof state === 'string' && state.trim() ? state.trim() : null;
 }
 
+function oauthCallbackPath(authUrl: string, fallback: string): string {
+  try {
+    const r = new URL(authUrl).searchParams.get('redirect_uri');
+    if (r) return new URL(r).pathname;
+  } catch { /* custom URL */ }
+  return fallback;
+}
+
+function oauthStateCookieOpts(path: string, config: AuthConfig, req: Request) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
+    path,
+  };
+}
+
+function verifyOAuthState(req: Request, res: Response, cookieName: string, path: string, config: AuthConfig): void {
+  const cookieVal = (req.cookies as Record<string, string> | undefined)?.[cookieName]
+    ?? (req.cookies as Record<string, string> | undefined)?.['oauth_state']
+    ?? tokenService.extractTokenFromCookie(req, cookieName)
+    ?? tokenService.extractTokenFromCookie(req, 'oauth_state');
+
+  res.clearCookie(cookieName, oauthStateCookieOpts(path, config, req));
+  res.clearCookie(cookieName, { path: '/' });
+  res.clearCookie('oauth_state', oauthStateCookieOpts(path, config, req));
+  res.clearCookie('oauth_state', { path: '/' });
+
+  const rawState = (req.query as Record<string, unknown>)['state'];
+  const stateNonce = decodeOAuthStateNonce(typeof rawState === 'string' ? rawState : undefined);
+
+  const a = Buffer.from(cookieVal ?? '');
+  const b = Buffer.from(stateNonce ?? '');
+  if (!cookieVal || !stateNonce || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
+  }
+}
+
 /**
  * Resolves the post-OAuth redirect target from the encoded state.
  * Falls back to `getDefaultSiteUrl` when the state carries no origin or the
@@ -480,6 +518,12 @@ async function issueTokens(
       await options.sessionStore.revokeAllSessionsForUser(user.id, (user as any).tenantId).catch(() => {});
     }
 
+    // Revoke the previous session before creating new one (token rotation)
+    // Store failures during /refresh must reject (500) so old tokens cannot be replayed
+    if (oldSid) {
+      await options.sessionStore.revokeSession(oldSid);
+    }
+
     const session = await options.sessionStore.createSession({
       userId: user.id,
       tenantId: (user as any).tenantId,
@@ -490,18 +534,17 @@ async function issueTokens(
     });
     payload.sid = session.sessionHandle;
 
-    // Revoke the previous session now that the new one is live (token rotation)
-    if (oldSid) {
-      await options.sessionStore.revokeSession(oldSid).catch(() => {});
-    }
-
     // Save session in local variable for updating hash below
     createdSession = session;
   }
 
   const tokens = tokenService.generateTokenPair(payload, config);
   const refreshExpiry = new Date(Date.now() + refreshExpiryMs);
-  await userStore.updateRefreshToken(user.id, tokens.refreshToken, refreshExpiry);
+
+  // Only write refresh token to user record when no session store is configured (single-device fallback)
+  if (!options.sessionStore) {
+    await userStore.updateRefreshToken(user.id, tokens.refreshToken, refreshExpiry);
+  }
 
   if (options.sessionStore && payload.sid) {
     const refreshTokenHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
@@ -530,6 +573,10 @@ export function createAuthRouter(
   options: RouterOptions = {}
 ): Router {
   const router = Router();
+
+  if (options.sessionStore && config.refreshTokenSecret === config.accessTokenSecret) {
+    throw new Error('refreshTokenSecret must differ from accessTokenSecret when a sessionStore is configured');
+  }
 
   // Parameterize refresh token path by default based on apiPrefix
   config.cookieOptions = {
@@ -765,14 +812,7 @@ export function createAuthRouter(
       const userId = req.user?.sub;
       const sessionId = req.user?.sid;
       if (req.user?.sub) {
-        let hasOtherSessions = false;
-        if (options.sessionStore?.getSessionsForUser) {
-          const remaining = await options.sessionStore.getSessionsForUser(req.user.sub).catch(() => []);
-          hasOtherSessions = remaining.length > 0;
-        }
-        if (!hasOtherSessions) {
-          await userStore.updateRefreshToken(req.user.sub, null, null);
-        }
+        await userStore.updateRefreshToken(req.user.sub, null, null).catch(() => {});
       }
       tokenService.clearTokenCookies(res, config);
       publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGOUT, req, {
@@ -799,22 +839,19 @@ export function createAuthRouter(
       }
       const payload = tokenService.verifyRefreshToken(refreshToken, config);
       
-      // Real-time Session Validation
-      const checkOn = config.session?.checkOn ?? 'refresh';
-      let session: SessionInfo | null = null;
+      // Real-time Session Validation (always checked on /refresh, regardless of checkOn)
       if (options.sessionStore && payload.sid) {
-        if (checkOn !== 'none') {
-          session = await options.sessionStore.getSession(payload.sid);
-          if (!session) {
-            res.status(401).json({ error: 'Session has been revoked', code: 'SESSION_REVOKED' });
-            return;
-          }
-        }
+        const session = await options.sessionStore.getSession(payload.sid);
         if (!session) {
-          session = await options.sessionStore.getSession(payload.sid);
+          res.status(401).json({ error: 'Session has been revoked', code: 'SESSION_REVOKED' });
+          return;
+        }
+        if (session.userId !== payload.sub) {
+          res.status(401).json({ error: 'Invalid refresh token' });
+          return;
         }
         // Per-session refresh token validation (multi-device support)
-        const expectedHash = session?.refreshTokenHash ?? (session?.data as Record<string, unknown> | undefined)?.refreshTokenHash;
+        const expectedHash = session.refreshTokenHash ?? (session.data as Record<string, unknown> | undefined)?.refreshTokenHash;
         if (expectedHash) {
           const presentedHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
           if (presentedHash !== expectedHash) {
@@ -1564,6 +1601,12 @@ export function createAuthRouter(
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
       const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
       const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      const url = googleStrategy.getAuthorizationUrl(state);
+      const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/google/callback`);
+      res.cookie('oauth_nonce_google', nonce, {
+        ...oauthStateCookieOpts(callbackPath, config, req),
+        maxAge: 10 * 60 * 1000,
+      });
       res.cookie('oauth_nonce_google', nonce, {
         httpOnly: true,
         sameSite: 'lax',
@@ -1571,22 +1614,13 @@ export function createAuthRouter(
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
-      const url = googleStrategy.getAuthorizationUrl(state);
       res.redirect(url);
     });
     router.get('/oauth/google/callback', ...rl, async (req: Request, res: Response) => {
       try {
+        const callbackPath = oauthCallbackPath(googleStrategy.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
+        verifyOAuthState(req, res, 'oauth_nonce_google', callbackPath, config);
         const { code, state } = req.query as { code: string; state?: string };
-        const cookieNonce = (req.cookies as Record<string, string> | undefined)?.['oauth_nonce_google']
-          ?? tokenService.extractTokenFromCookie(req, 'oauth_nonce_google');
-        res.clearCookie('oauth_nonce_google', { path: '/' });
-        const stateNonce = decodeOAuthStateNonce(state);
-        if (cookieNonce || stateNonce) {
-          if (!cookieNonce || !stateNonce || cookieNonce !== stateNonce) {
-            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
-            return;
-          }
-        }
 
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
         const user = await googleStrategy.handleCallback(code, state);
@@ -1635,6 +1669,12 @@ export function createAuthRouter(
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
       const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
       const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      const url = githubStrategy.getAuthorizationUrl(state);
+      const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/github/callback`);
+      res.cookie('oauth_nonce_github', nonce, {
+        ...oauthStateCookieOpts(callbackPath, config, req),
+        maxAge: 10 * 60 * 1000,
+      });
       res.cookie('oauth_nonce_github', nonce, {
         httpOnly: true,
         sameSite: 'lax',
@@ -1642,22 +1682,13 @@ export function createAuthRouter(
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
-      const url = githubStrategy.getAuthorizationUrl(state);
       res.redirect(url);
     });
     router.get('/oauth/github/callback', ...rl, async (req: Request, res: Response) => {
       try {
+        const callbackPath = oauthCallbackPath(githubStrategy.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
+        verifyOAuthState(req, res, 'oauth_nonce_github', callbackPath, config);
         const { code, state } = req.query as { code: string; state?: string };
-        const cookieNonce = (req.cookies as Record<string, string> | undefined)?.['oauth_nonce_github']
-          ?? tokenService.extractTokenFromCookie(req, 'oauth_nonce_github');
-        res.clearCookie('oauth_nonce_github', { path: '/' });
-        const stateNonce = decodeOAuthStateNonce(state);
-        if (cookieNonce || stateNonce) {
-          if (!cookieNonce || !stateNonce || cookieNonce !== stateNonce) {
-            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
-            return;
-          }
-        }
 
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
         const user = await githubStrategy.handleCallback(code, state);
@@ -1707,6 +1738,12 @@ export function createAuthRouter(
         const resolved = resolveSiteUrl(req, config, allowedOrigins);
         const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
         const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+        const url = s.getAuthorizationUrl(state);
+        const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/${s.name}/callback`);
+        res.cookie(`oauth_nonce_${s.name}`, nonce, {
+          ...oauthStateCookieOpts(callbackPath, config, req),
+          maxAge: 10 * 60 * 1000,
+        });
         res.cookie(`oauth_nonce_${s.name}`, nonce, {
           httpOnly: true,
           sameSite: 'lax',
@@ -1714,20 +1751,14 @@ export function createAuthRouter(
           maxAge: 10 * 60 * 1000,
           path: '/',
         });
-        res.redirect(s.getAuthorizationUrl(state));
+        res.redirect(url);
       });
       router.get(`/oauth/${s.name}/callback`, ...rl, async (req: Request, res: Response) => {
         try {
-          const { code, state } = req.query as { code: string; state?: string };
           const cookieName = `oauth_nonce_${s.name}`;
-          const cookieNonce = (req.cookies as Record<string, string> | undefined)?.[cookieName]
-            ?? tokenService.extractTokenFromCookie(req, cookieName);
-          res.clearCookie(cookieName, { path: '/' });
-          const stateNonce = decodeOAuthStateNonce(state);
-          if (cookieNonce && (!stateNonce || cookieNonce !== stateNonce)) {
-            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
-            return;
-          }
+          const callbackPath = oauthCallbackPath(s.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
+          verifyOAuthState(req, res, cookieName, callbackPath, config);
+          const { code, state } = req.query as { code: string; state?: string };
 
           const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
           const user = await s.handleCallback(code, state);

@@ -7,14 +7,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ## [1.10.2] — 2026-09-27
 
+### Security
+- **OAuth state nonce CSRF protection** (Issue #14):
+  - OAuth initiation routes (`/oauth/google`, `/oauth/github`, generic strategies) set an `HttpOnly`, `SameSite=Lax` cookie scoped to the callback path.
+  - Callback endpoints strictly validate that the cookie is present and constant-time matches (`crypto.timingSafeEqual`) the `state` parameter nonce, returning HTTP 400 (`INVALID_OAUTH_STATE`) on missing cookie, missing state, or mismatched nonces, effectively preventing Login CSRF.
+- **Refresh token security & secret separation** (Issue #13):
+  - `createAuthRouter` now throws an error if `refreshTokenSecret === accessTokenSecret` when a `sessionStore` is configured.
+  - Revocation failure (`revokeSession`) during `/refresh` properly propagates as an HTTP 500 error instead of being swallowed, preventing old rotated tokens from remaining replayable.
+
 ### Added
 - **Multi-device session isolation and singleSessionPerUser option** (Issue #13):
-  - Session records now store a SHA-256 hash of the issued refresh token (`refreshTokenHash`), enabling independent per-session token validation on refresh and isolated logout per device without invalidating sessions on other devices.
+  - With a `sessionStore` configured, refresh tokens are tracked per session and never written to the user record (`userStore.updateRefreshToken` is never called with a non-null token).
+  - `/refresh` always validates active session existence in the store even when `checkOn: 'none'`, rejecting revoked sessions with `401 SESSION_REVOKED`.
+  - Session ownership is strictly verified against token subject (`session.userId === payload.sub`).
   - Added optional `singleSessionPerUser` (and alias `singleSession`) in `AuthConfig['session']`. When set to `true`, logging in from a new device automatically terminates all previous active sessions for the user.
   - Added optional `updateSessionRefreshTokenHash?(sessionHandle, hash)` to `ISessionStore`.
-- **OAuth state nonce CSRF protection** (Issue #14):
-  - OAuth initiation routes (`/oauth/google`, `/oauth/github`, generic strategies) now set a short-lived `HttpOnly`, `SameSite=Lax` cookie containing the cryptographic nonce.
-  - Callback endpoints validate the cookie against the nonce embedded in the `state` parameter and return HTTP 400 (`INVALID_OAUTH_STATE`) upon missing or mismatched state, clearing the cookie upon completion.
 
 ### Fixed
 - **OAuth account conflict redirect path pollution** (Issue #15):

@@ -131,10 +131,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       // Call callback WITHOUT sending the cookie
       const res = await request(app).get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`);
       expect(res.status).toBe(400);
-      expect(res.body).toEqual({
-        error: 'Invalid or missing OAuth state nonce',
-        code: 'INVALID_OAUTH_STATE',
-      });
+      expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });
 
     it('rejects callback with 400 INVALID_OAUTH_STATE when cookie nonce does not match state', async () => {
@@ -245,6 +242,40 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         .get(`/auth/oauth/discord/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_discord=${cookieNonce}`);
       expect(goodRes.status).toBe(302);
+    });
+
+    it('rejects callback with 400 when attacker provides code with no state and victim has no cookie', async () => {
+      const app = express();
+      app.use('/auth', createAuthRouter(userStore, oauthConfig, {
+        googleStrategy: new TestGoogleStrategy(oauthConfig),
+      }));
+
+      // Attacker crafts callback URL without state; victim never initiated Google flow (no cookie)
+      const res = await request(app).get('/auth/oauth/google/callback?code=attacker-stolen-code');
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OAUTH_STATE');
+    });
+
+    it('rejects generic strategy callback with 400 when cookie is missing', async () => {
+      const app = express();
+      app.use('/auth', createAuthRouter(userStore, oauthConfig, {
+        oauthStrategies: [new TestDiscordStrategy(discordCfg)],
+      }));
+
+      const res = await request(app).get('/auth/oauth/discord/callback?code=fake-code&state=xyz');
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OAUTH_STATE');
+    });
+
+    it('rejects generic strategy callback with 400 when both state and cookie are missing', async () => {
+      const app = express();
+      app.use('/auth', createAuthRouter(userStore, oauthConfig, {
+        oauthStrategies: [new TestDiscordStrategy(discordCfg)],
+      }));
+
+      const res = await request(app).get('/auth/oauth/discord/callback?code=fake-code');
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });
   });
 });
