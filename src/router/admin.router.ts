@@ -29,6 +29,18 @@ import { publishRequestEvent as publishAdminEvent } from './router-events';
  * /auth/ui/login. Keep these two audiences distinct in code and docs.
  */
 
+function toSingleString(val: unknown, fallback = ''): string {
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') return val[0];
+  return fallback;
+}
+
+function toSafeInt(val: unknown, fallback: number): number {
+  const str = toSingleString(val);
+  const parsed = parseInt(str, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export type AuthorizedAdminUser = BaseUser & { roles: string[] };
 
 /**
@@ -358,7 +370,14 @@ function buildPolicyGuard(
         const cookieHeader = req.headers.cookie ?? '';
         cookies = cookieHeader.split(';').reduce<Record<string, string>>((acc, part) => {
           const [key, ...val] = part.trim().split('=');
-          if (key) acc[key.trim()] = decodeURIComponent(val.join('='));
+          if (key) {
+            const rawVal = val.join('=');
+            try {
+              acc[key.trim()] = decodeURIComponent(rawVal);
+            } catch {
+              acc[key.trim()] = rawVal;
+            }
+          }
           return acc;
         }, {});
       }
@@ -657,7 +676,7 @@ export function createAdminRouter(
   // ── Local Login Handler (Self-contained Auth) ──────────────────────────
   if (sessionBased && secret) {
     router.post('/login', async (req, res) => {
-      const { email, password } = req.body;
+      const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
       if (!password) {
         res.status(400).json({ error: 'Password required' });
         return;
@@ -887,9 +906,9 @@ export function createAdminRouter(
   // GET /admin/api/users?limit=&offset=
   router.get('/api/users', guard, async (req: Request, res: Response) => {
     try {
-      const limit = Math.min(parseInt((req.query['limit'] as string) || '20', 10), 100);
-      const offset = parseInt((req.query['offset'] as string) || '0', 10);
-      const filter = (req.query['filter'] as string || '').toLowerCase().trim();
+      const limit = Math.min(Math.max(toSafeInt(req.query['limit'], 20), 1), 100);
+      const offset = Math.max(toSafeInt(req.query['offset'], 0), 0);
+      const filter = toSingleString(req.query['filter']).toLowerCase().trim();
       if (!userStore.listUsers) {
         res.status(501).json({ error: 'IUserStore.listUsers is not implemented', users: [], total: 0 });
         return;
@@ -959,7 +978,7 @@ export function createAdminRouter(
   // POST /admin/api/2fa-policy — bulk set / clear the require-2FA flag on all users
   router.post('/api/2fa-policy', guard, async (req: Request, res: Response) => {
     try {
-      const { required } = req.body as { required: boolean };
+      const { required } = (req.body ?? {}) as { required?: boolean };
       if (typeof required !== 'boolean') {
         res.status(400).json({ error: '"required" must be a boolean' });
         return;
@@ -1044,7 +1063,7 @@ export function createAdminRouter(
   router.post('/api/users/:id/roles', guard, async (req: Request, res: Response) => {
     if (!options.rbacStore) { res.status(404).json({ error: 'RBAC store not configured' }); return; }
     try {
-      const { role, tenantId } = req.body as { role: string; tenantId?: string };
+      const { role, tenantId } = (req.body ?? {}) as { role?: string; tenantId?: string };
       if (!role) { res.status(400).json({ error: 'role is required' }); return; }
       const userId = req.params['id'] as string;
       await options.rbacStore.addRoleToUser(userId, role, tenantId);
@@ -1282,9 +1301,9 @@ export function createAdminRouter(
   router.get('/api/sessions', guard, async (req: Request, res: Response) => {
     if (!options.sessionStore) { res.status(404).json({ error: 'Session store not configured' }); return; }
     try {
-      const limit = Math.min(parseInt((req.query['limit'] as string) || '20', 10), 100);
-      const offset = parseInt((req.query['offset'] as string) || '0', 10);
-      const filter = (req.query['filter'] as string || '').toLowerCase().trim();
+      const limit = Math.min(Math.max(toSafeInt(req.query['limit'], 20), 1), 100);
+      const offset = Math.max(toSafeInt(req.query['offset'], 0), 0);
+      const filter = toSingleString(req.query['filter']).toLowerCase().trim();
       if (!options.sessionStore.getAllSessions) {
         res.status(501).json({ error: 'ISessionStore.getAllSessions is not implemented', sessions: [], total: 0 });
         return;
@@ -1346,7 +1365,7 @@ export function createAdminRouter(
   router.post('/api/roles', guard, async (req: Request, res: Response) => {
     if (!options.rbacStore) { res.status(404).json({ error: 'RBAC store not configured' }); return; }
     try {
-      const { name, permissions } = req.body as { name: string; permissions?: string[] };
+      const { name, permissions } = (req.body ?? {}) as { name?: string; permissions?: string[] };
       if (!name) { res.status(400).json({ error: 'name is required' }); return; }
       await options.rbacStore.createRole(name, permissions);
       res.json({ success: true });
@@ -1383,7 +1402,7 @@ export function createAdminRouter(
   router.post('/api/tenants', guard, async (req: Request, res: Response) => {
     if (!options.tenantStore) { res.status(404).json({ error: 'Tenant store not configured' }); return; }
     try {
-      const { name, isActive } = req.body as { name: string; isActive?: boolean };
+      const { name, isActive } = (req.body ?? {}) as { name?: string; isActive?: boolean };
       if (!name) { res.status(400).json({ error: 'name is required' }); return; }
       const tenant = await options.tenantStore.createTenant({ name, isActive: isActive ?? true });
       res.json({ tenant });
@@ -1420,7 +1439,7 @@ export function createAdminRouter(
   router.post('/api/tenants/:id/users', guard, async (req: Request, res: Response) => {
     if (!options.tenantStore) { res.status(404).json({ error: 'Tenant store not configured' }); return; }
     try {
-      const { userId } = req.body as { userId: string };
+      const { userId } = (req.body ?? {}) as { userId?: string };
       if (!userId) { res.status(400).json({ error: 'userId is required' }); return; }
       await options.tenantStore.associateUserWithTenant(userId, decodeURIComponent(req.params['id'] as string));
       res.json({ success: true });
@@ -1449,9 +1468,9 @@ export function createAdminRouter(
   router.get('/api/api-keys', guard, async (req: Request, res: Response) => {
     if (!options.apiKeyStore) { res.status(404).json({ error: 'API key store not configured' }); return; }
     try {
-      const limit = Math.min(parseInt((req.query['limit'] as string) || '20', 10), 100);
-      const offset = parseInt((req.query['offset'] as string) || '0', 10);
-      const filter = (req.query['filter'] as string || '').toLowerCase().trim();
+      const limit = Math.min(Math.max(toSafeInt(req.query['limit'], 20), 1), 100);
+      const offset = Math.max(toSafeInt(req.query['offset'], 0), 0);
+      const filter = toSingleString(req.query['filter']).toLowerCase().trim();
       if (!options.apiKeyStore.listAll) {
         res.status(501).json({ error: 'IApiKeyStore.listAll is not implemented', keys: [], total: 0 });
         return;
@@ -1491,7 +1510,7 @@ export function createAdminRouter(
   router.post('/api/api-keys', guard, async (req: Request, res: Response) => {
     if (!options.apiKeyStore) { res.status(404).json({ error: 'API key store not configured' }); return; }
     try {
-      const { name, serviceId, scopes, allowedIps, expiresAt } = req.body as {
+      const { name, serviceId, scopes, allowedIps, expiresAt } = (req.body ?? {}) as {
         name: string;
         serviceId?: string;
         scopes?: string[];
@@ -1559,8 +1578,8 @@ export function createAdminRouter(
   router.get('/api/webhooks', guard, async (req: Request, res: Response) => {
     if (!options.webhookStore) { res.status(404).json({ error: 'Webhook store not configured' }); return; }
     try {
-      const limit = Math.min(parseInt((req.query['limit'] as string) || '20', 10), 100);
-      const offset = parseInt((req.query['offset'] as string) || '0', 10);
+      const limit = Math.min(Math.max(toSafeInt(req.query['limit'], 20), 1), 100);
+      const offset = Math.max(toSafeInt(req.query['offset'], 0), 0);
       if (!options.webhookStore.listAll) {
         res.status(501).json({ error: 'IWebhookStore.listAll is not implemented', webhooks: [], total: 0 });
         return;
@@ -1586,7 +1605,7 @@ export function createAdminRouter(
   router.post('/api/webhooks', guard, async (req: Request, res: Response) => {
     if (!options.webhookStore) { res.status(404).json({ error: 'Webhook store not configured' }); return; }
     try {
-      const { url, events, secret, tenantId, isActive, maxRetries, retryDelayMs } = req.body as {
+      const { url, events, secret, tenantId, isActive, maxRetries, retryDelayMs } = (req.body ?? {}) as {
         url: string; events?: string[]; secret?: string; tenantId?: string;
         isActive?: boolean; maxRetries?: number; retryDelayMs?: number;
       };
@@ -1653,7 +1672,9 @@ export function createAdminRouter(
     // POST /admin/api/templates/mail — create or update a mail template
     router.post('/api/templates/mail', guard, async (req: Request, res: Response) => {
       try {
-        const { id, baseHtml, baseText, translations } = req.body;
+        const { id, baseHtml, baseText, translations } = (req.body ?? {}) as {
+          id?: string; baseHtml?: string; baseText?: string; translations?: Record<string, Record<string, string>>;
+        };
         if (!id) { res.status(400).json({ error: 'id is required' }); return; }
         await store.updateMailTemplate(id, { baseHtml, baseText, translations });
         res.json({ success: true });
@@ -1675,7 +1696,9 @@ export function createAdminRouter(
     // POST /admin/api/templates/ui — update UI translations for a page
     router.post('/api/templates/ui', guard, async (req: Request, res: Response) => {
       try {
-        const { page, translations } = req.body;
+        const { page, translations } = (req.body ?? {}) as {
+          page?: string; translations?: Record<string, Record<string, string>>;
+        };
         if (!page || !translations) { res.status(400).json({ error: 'page and translations are required' }); return; }
         await store.updateUiTranslations(page, translations);
         res.json({ success: true });
