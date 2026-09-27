@@ -24,4 +24,6 @@ export interface SessionInfo {
   ipAddress?: string;
   /** Arbitrary session-level data (e.g. device name, geo-location, etc.). */
   data?: Record<string, unknown>;
+  /** SHA-256 hash of the active refresh token for this session (multi-device support). */
+  refreshTokenHash?: string;
 }

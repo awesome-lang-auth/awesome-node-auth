@@ -397,6 +397,23 @@ export interface AuthConfig {
      * @default 'refresh'
      */
     checkOn?: 'allcalls' | 'refresh' | 'none';
+
+    /**
+     * If `true`, a user can only have one active session at a time.
+     * Logging in from a new device/client automatically revokes all previous active sessions
+     * for this user in the `sessionStore` (`revokeAllSessionsForUser`), disconnecting previous devices.
+     *
+     * If `false` (default), multiple concurrent sessions across different devices
+     * are allowed simultaneously. Each device maintains its own session and refresh token.
+     *
+     * @default false
+     */
+    singleSessionPerUser?: boolean;
+
+    /**
+     * Alias for `singleSessionPerUser`.
+     */
+    singleSession?: boolean;
   };
   /**
    * Optional template store for custom email and UI translations.

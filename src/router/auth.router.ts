@@ -1,9 +1,11 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
+import * as crypto from 'crypto';
 import type { AuthRequestHandler } from '../http-types';
 import { IUserStore } from '../interfaces/user-store.interface';
 import { IUserMetadataStore } from '../interfaces/user-metadata-store.interface';
 import { IRolesPermissionsStore } from '../interfaces/roles-permissions-store.interface';
 import { ISessionStore } from '../interfaces/session-store.interface';
+import { SessionInfo } from '../models/session.model';
 import { ITenantStore } from '../interfaces/tenant-store.interface';
 import { ILinkedAccountsStore } from '../interfaces/linked-accounts-store.interface';
 import { IPendingLinkStore } from '../interfaces/pending-link-store.interface';
@@ -353,6 +355,19 @@ function decodeOAuthStateOrigin(state: string | undefined): string | null {
 }
 
 /**
+ * Extracts the random nonce from a structured or plain OAuth state parameter.
+ * Returns `null` when state is undefined or empty.
+ */
+function decodeOAuthStateNonce(state: string | undefined): string | null {
+  if (!state) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(state, 'base64url').toString());
+    if (isOAuthState(parsed)) return parsed.n;
+  } catch { /* plain nonce or invalid base64 */ }
+  return typeof state === 'string' && state.trim() ? state.trim() : null;
+}
+
+/**
  * Resolves the post-OAuth redirect target from the encoded state.
  * Falls back to `getDefaultSiteUrl` when the state carries no origin or the
  * origin is not in the allowlist (prevents open-redirect attacks).  When the
@@ -457,10 +472,17 @@ async function issueTokens(
 ): Promise<{ sessionId?: string }> {
   const payload = buildPayload(user, config);
   const refreshExpiryMs = parseExpiryMs(config.refreshTokenExpiresIn as string | undefined);
+  let createdSession: SessionInfo | undefined;
 
   if (options.sessionStore) {
+    const isSingleSession = config.session?.singleSessionPerUser ?? config.session?.singleSession ?? false;
+    if (isSingleSession && !oldSid) {
+      await options.sessionStore.revokeAllSessionsForUser(user.id, (user as any).tenantId).catch(() => {});
+    }
+
     const session = await options.sessionStore.createSession({
       userId: user.id,
+      tenantId: (user as any).tenantId,
       userAgent: req.headers['user-agent'],
       ipAddress: req.ip || req.socket.remoteAddress,
       expiresAt: new Date(Date.now() + refreshExpiryMs),
@@ -472,11 +494,26 @@ async function issueTokens(
     if (oldSid) {
       await options.sessionStore.revokeSession(oldSid).catch(() => {});
     }
+
+    // Save session in local variable for updating hash below
+    createdSession = session;
   }
 
   const tokens = tokenService.generateTokenPair(payload, config);
   const refreshExpiry = new Date(Date.now() + refreshExpiryMs);
   await userStore.updateRefreshToken(user.id, tokens.refreshToken, refreshExpiry);
+
+  if (options.sessionStore && payload.sid) {
+    const refreshTokenHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+    if (createdSession) {
+      createdSession.refreshTokenHash = refreshTokenHash;
+      if (!createdSession.data) createdSession.data = {};
+      createdSession.data.refreshTokenHash = refreshTokenHash;
+    }
+    if (options.sessionStore.updateSessionRefreshTokenHash) {
+      await options.sessionStore.updateSessionRefreshTokenHash(payload.sid, refreshTokenHash).catch(() => {});
+    }
+  }
 
   if (redirectTo) {
     tokenService.setTokenCookies(res, tokens, config);
@@ -703,12 +740,20 @@ export function createAuthRouter(
     if (typeof bodyRefreshToken === 'string' && bodyRefreshToken) {
       try {
         const payload = tokenService.verifyRefreshToken(bodyRefreshToken, config);
-        const user = await userStore.findById(payload.sub);
-        if (user && user.refreshToken === bodyRefreshToken) {
-          if (options.sessionStore && payload.sid) {
-            await options.sessionStore.revokeSession(payload.sid).catch(() => {});
+        if (options.sessionStore && payload.sid) {
+          const session = await options.sessionStore.getSession(payload.sid);
+          if (session) {
+            const expectedHash = session.refreshTokenHash ?? (session.data as Record<string, unknown> | undefined)?.refreshTokenHash;
+            if (!expectedHash || crypto.createHash('sha256').update(bodyRefreshToken).digest('hex') === expectedHash) {
+              await options.sessionStore.revokeSession(payload.sid).catch(() => {});
+              if (!req.user) req.user = payload;
+            }
           }
-          if (!req.user) req.user = payload;
+        } else {
+          const user = await userStore.findById(payload.sub);
+          if (user && user.refreshToken === bodyRefreshToken) {
+            if (!req.user) req.user = payload;
+          }
         }
       } catch {
         // Invalid, expired or already rotated: nothing to revoke
@@ -720,7 +765,14 @@ export function createAuthRouter(
       const userId = req.user?.sub;
       const sessionId = req.user?.sid;
       if (req.user?.sub) {
-        await userStore.updateRefreshToken(req.user.sub, null, null);
+        let hasOtherSessions = false;
+        if (options.sessionStore?.getSessionsForUser) {
+          const remaining = await options.sessionStore.getSessionsForUser(req.user.sub).catch(() => []);
+          hasOtherSessions = remaining.length > 0;
+        }
+        if (!hasOtherSessions) {
+          await userStore.updateRefreshToken(req.user.sub, null, null);
+        }
       }
       tokenService.clearTokenCookies(res, config);
       publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGOUT, req, {
@@ -749,18 +801,41 @@ export function createAuthRouter(
       
       // Real-time Session Validation
       const checkOn = config.session?.checkOn ?? 'refresh';
-      if (options.sessionStore && payload.sid && checkOn !== 'none') {
-        const session = await options.sessionStore.getSession(payload.sid);
+      let session: SessionInfo | null = null;
+      if (options.sessionStore && payload.sid) {
+        if (checkOn !== 'none') {
+          session = await options.sessionStore.getSession(payload.sid);
+          if (!session) {
+            res.status(401).json({ error: 'Session has been revoked', code: 'SESSION_REVOKED' });
+            return;
+          }
+        }
         if (!session) {
-          res.status(401).json({ error: 'Session has been revoked', code: 'SESSION_REVOKED' });
-          return;
+          session = await options.sessionStore.getSession(payload.sid);
+        }
+        // Per-session refresh token validation (multi-device support)
+        const expectedHash = session?.refreshTokenHash ?? (session?.data as Record<string, unknown> | undefined)?.refreshTokenHash;
+        if (expectedHash) {
+          const presentedHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+          if (presentedHash !== expectedHash) {
+            res.status(401).json({ error: 'Invalid refresh token' });
+            return;
+          }
         }
       }
 
       const user = await userStore.findById(payload.sub);
-      if (!user || user.refreshToken !== refreshToken) {
+      if (!user) {
         res.status(401).json({ error: 'Invalid refresh token' });
         return;
+      }
+
+      // If no session store is used or payload has no sid, validate against user.refreshToken
+      if (!options.sessionStore || !payload.sid) {
+        if (user.refreshToken !== refreshToken) {
+          res.status(401).json({ error: 'Invalid refresh token' });
+          return;
+        }
       }
       
       const { sessionId } = await issueTokens(req, res, user, config, options, userStore, /* redirectTo */ undefined, payload.sid);
@@ -1489,12 +1564,30 @@ export function createAuthRouter(
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
       const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
       const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      res.cookie('oauth_nonce_google', nonce, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
+        maxAge: 10 * 60 * 1000,
+        path: '/',
+      });
       const url = googleStrategy.getAuthorizationUrl(state);
       res.redirect(url);
     });
     router.get('/oauth/google/callback', ...rl, async (req: Request, res: Response) => {
       try {
         const { code, state } = req.query as { code: string; state?: string };
+        const cookieNonce = (req.cookies as Record<string, string> | undefined)?.['oauth_nonce_google']
+          ?? tokenService.extractTokenFromCookie(req, 'oauth_nonce_google');
+        res.clearCookie('oauth_nonce_google', { path: '/' });
+        const stateNonce = decodeOAuthStateNonce(state);
+        if (cookieNonce || stateNonce) {
+          if (!cookieNonce || !stateNonce || cookieNonce !== stateNonce) {
+            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
+            return;
+          }
+        }
+
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
         const user = await googleStrategy.handleCallback(code, state);
         // Link the account if linkedAccountsStore is configured
@@ -1513,14 +1606,17 @@ export function createAuthRouter(
           publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
             data: oauthConflictEventData('google', err.data),
           });
-          const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
+          const rawOrigin = decodeOAuthStateOrigin((req.query as { state?: string }).state);
+          const conflictOrigin = (rawOrigin && (allowedOrigins.length === 0 || allowedOrigins.includes(rawOrigin)))
+            ? rawOrigin
+            : getDefaultSiteUrl(config);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
           if (options.pendingLinkStore && email && providerAccountId) {
             await options.pendingLinkStore.stash(email, 'google', providerAccountId).catch((e: unknown) => { console.error('[node-auth] pendingLinkStore.stash error (google):', e); });
           }
           const emailParam = email ? `&email=${encodeURIComponent(email)}` : '';
           const paramStr = `?provider=google&code=OAUTH_ACCOUNT_CONFLICT${emailParam}`;
-          res.redirect(buildUiLink(siteUrl, `/account-conflict${paramStr}`, config, options));
+          res.redirect(buildUiLink(conflictOrigin, `/account-conflict${paramStr}`, config, options));
           return;
         }
         handleError(res, err);
@@ -1539,12 +1635,30 @@ export function createAuthRouter(
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
       const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
       const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      res.cookie('oauth_nonce_github', nonce, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
+        maxAge: 10 * 60 * 1000,
+        path: '/',
+      });
       const url = githubStrategy.getAuthorizationUrl(state);
       res.redirect(url);
     });
     router.get('/oauth/github/callback', ...rl, async (req: Request, res: Response) => {
       try {
         const { code, state } = req.query as { code: string; state?: string };
+        const cookieNonce = (req.cookies as Record<string, string> | undefined)?.['oauth_nonce_github']
+          ?? tokenService.extractTokenFromCookie(req, 'oauth_nonce_github');
+        res.clearCookie('oauth_nonce_github', { path: '/' });
+        const stateNonce = decodeOAuthStateNonce(state);
+        if (cookieNonce || stateNonce) {
+          if (!cookieNonce || !stateNonce || cookieNonce !== stateNonce) {
+            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
+            return;
+          }
+        }
+
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
         const user = await githubStrategy.handleCallback(code, state);
         // Link the account if linkedAccountsStore is configured
@@ -1563,14 +1677,17 @@ export function createAuthRouter(
           publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
             data: oauthConflictEventData('github', err.data),
           });
-          const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
+          const rawOrigin = decodeOAuthStateOrigin((req.query as { state?: string }).state);
+          const conflictOrigin = (rawOrigin && (allowedOrigins.length === 0 || allowedOrigins.includes(rawOrigin)))
+            ? rawOrigin
+            : getDefaultSiteUrl(config);
           const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
           if (options.pendingLinkStore && email && providerAccountId) {
             await options.pendingLinkStore.stash(email, 'github', providerAccountId).catch((e: unknown) => { console.error('[node-auth] pendingLinkStore.stash error (github):', e); });
           }
           const emailParam = email ? `&email=${encodeURIComponent(email)}` : '';
           const paramStr = `?provider=github&code=OAUTH_ACCOUNT_CONFLICT${emailParam}`;
-          res.redirect(buildUiLink(siteUrl, `/account-conflict${paramStr}`, config, options));
+          res.redirect(buildUiLink(conflictOrigin, `/account-conflict${paramStr}`, config, options));
           return;
         }
         handleError(res, err);
@@ -1590,11 +1707,28 @@ export function createAuthRouter(
         const resolved = resolveSiteUrl(req, config, allowedOrigins);
         const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
         const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+        res.cookie(`oauth_nonce_${s.name}`, nonce, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
+          maxAge: 10 * 60 * 1000,
+          path: '/',
+        });
         res.redirect(s.getAuthorizationUrl(state));
       });
       router.get(`/oauth/${s.name}/callback`, ...rl, async (req: Request, res: Response) => {
         try {
           const { code, state } = req.query as { code: string; state?: string };
+          const cookieName = `oauth_nonce_${s.name}`;
+          const cookieNonce = (req.cookies as Record<string, string> | undefined)?.[cookieName]
+            ?? tokenService.extractTokenFromCookie(req, cookieName);
+          res.clearCookie(cookieName, { path: '/' });
+          const stateNonce = decodeOAuthStateNonce(state);
+          if (cookieNonce && (!stateNonce || cookieNonce !== stateNonce)) {
+            res.status(400).json({ error: 'Invalid or missing OAuth state nonce', code: 'INVALID_OAUTH_STATE' });
+            return;
+          }
+
           const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
           const user = await s.handleCallback(code, state);
           // Link the account if linkedAccountsStore is configured
@@ -1613,14 +1747,17 @@ export function createAuthRouter(
             publishRouterEvent(eventBus, AuthEventNames.AUTH_OAUTH_CONFLICT, req, {
               data: oauthConflictEventData(s.name, err.data),
             });
-            const siteUrl = resolveOAuthRedirect((req.query as { state?: string }).state, config, allowedOrigins);
+            const rawOrigin = decodeOAuthStateOrigin((req.query as { state?: string }).state);
+            const conflictOrigin = (rawOrigin && (allowedOrigins.length === 0 || allowedOrigins.includes(rawOrigin)))
+              ? rawOrigin
+              : getDefaultSiteUrl(config);
             const { email, providerAccountId } = (err.data ?? {}) as { email?: string; providerAccountId?: string };
             if (options.pendingLinkStore && email && providerAccountId) {
               await options.pendingLinkStore.stash(email, s.name, providerAccountId).catch((e: unknown) => { console.error(`[node-auth] pendingLinkStore.stash error (${s.name}):`, e); });
             }
             const emailParam = email ? `&email=${encodeURIComponent(email)}` : '';
             const paramStr = `?provider=${encodeURIComponent(s.name)}&code=OAUTH_ACCOUNT_CONFLICT${emailParam}`;
-            res.redirect(buildUiLink(siteUrl, `/account-conflict${paramStr}`, config, options));
+            res.redirect(buildUiLink(conflictOrigin, `/account-conflict${paramStr}`, config, options));
             return;
           }
           handleError(res, err);

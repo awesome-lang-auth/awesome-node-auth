@@ -5,6 +5,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
+## [1.10.2] — 2026-09-27
+
+### Added
+- **Multi-device session isolation and singleSessionPerUser option** (Issue #13):
+  - Session records now store a SHA-256 hash of the issued refresh token (`refreshTokenHash`), enabling independent per-session token validation on refresh and isolated logout per device without invalidating sessions on other devices.
+  - Added optional `singleSessionPerUser` (and alias `singleSession`) in `AuthConfig['session']`. When set to `true`, logging in from a new device automatically terminates all previous active sessions for the user.
+  - Added optional `updateSessionRefreshTokenHash?(sessionHandle, hash)` to `ISessionStore`.
+- **OAuth state nonce CSRF protection** (Issue #14):
+  - OAuth initiation routes (`/oauth/google`, `/oauth/github`, generic strategies) now set a short-lived `HttpOnly`, `SameSite=Lax` cookie containing the cryptographic nonce.
+  - Callback endpoints validate the cookie against the nonce embedded in the `state` parameter and return HTTP 400 (`INVALID_OAUTH_STATE`) upon missing or mismatched state, clearing the cookie upon completion.
+
+### Fixed
+- **OAuth account conflict redirect path pollution** (Issue #15):
+  - Account conflict redirects now resolve cleanly to the base site origin (`conflictOrigin`), preventing URL path pollution when the OAuth flow was initiated with a custom `return_path` or `returnTo`.
+- **HTTP 4xx input robustness against 500 server crashes** (Issue #16):
+  - Cookie parsing safely catches `URIError` when malformed percent sequences (such as `%` or `%ZZ`) are supplied, returning 401/403 rather than throwing unhandled 500 errors.
+  - Admin router endpoints safely guard against missing or non-object `req.body` with `(req.body ?? {})`, returning HTTP 400 with descriptive error messages.
+  - Admin router list query parameters (`limit`, `offset`, `filter`) safely handle repeated query parameters without producing `NaN` or unhandled exceptions.
+
+---
+
 ## [1.10.1] — 2026-09-25
 
 ### Changed

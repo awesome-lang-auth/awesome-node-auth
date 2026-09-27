@@ -98,4 +98,10 @@ export interface ISessionStore {
    * @returns The number of sessions that were deleted.
    */
   deleteExpiredSessions?(): Promise<number>;
+
+  /**
+   * Optional: update the stored refresh token hash for an existing session.
+   * Called during token refresh and session rotation.
+   */
+  updateSessionRefreshTokenHash?(sessionHandle: string, refreshTokenHash: string): Promise<void>;
 }

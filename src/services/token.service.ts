@@ -378,7 +378,14 @@ export class TokenService {
     if (!cookieHeader) return null;
     const cookies = cookieHeader.split(';').reduce<Record<string, string>>((acc, part) => {
       const [key, ...val] = part.trim().split('=');
-      if (key) acc[key.trim()] = decodeURIComponent(val.join('='));
+      if (key) {
+        const rawVal = val.join('=');
+        try {
+          acc[key.trim()] = decodeURIComponent(rawVal);
+        } catch {
+          acc[key.trim()] = rawVal;
+        }
+      }
       return acc;
     }, {});
 
