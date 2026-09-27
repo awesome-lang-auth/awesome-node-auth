@@ -392,7 +392,7 @@ export interface AuthConfig {
      *
      * - `allcalls`: Verify the session on every single request. Maximum security, requires a low-latency store (Redis).
      * - `refresh`: Verify the session only during token refresh. High performance with good security.
-     * - `none`: Sessions are created and tracked in the store but never verified during requests.
+     * - `none`: Access tokens are verified statelessly without session lookup. Note: `POST /refresh` always validates session existence in the store even under `'none'`; a revoked or rotated session can never refresh (`401 SESSION_REVOKED`).
      *
      * @default 'refresh'
      */

@@ -295,7 +295,9 @@ describe('2FA step-up token', () => {
       oauthStrategies: [new DiscordStrategy(providerConfig)],
     }));
 
-    const callback = await request(oauthApp).get('/auth/oauth/discord/callback?code=abc&state=xyz');
+    const callback = await request(oauthApp)
+      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(callback.status).toBe(302);
     const tempToken = new URL(callback.headers['location'] as string).searchParams.get('tempToken')!;
     expect(tempToken).toBeTruthy();

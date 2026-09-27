@@ -38,7 +38,7 @@ function toSingleString(val: unknown, fallback = ''): string {
 function toSafeInt(val: unknown, fallback: number): number {
   const str = toSingleString(val);
   const parsed = parseInt(str, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 export type AuthorizedAdminUser = BaseUser & { roles: string[] };

@@ -194,8 +194,6 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionStore.sessions.has(newSessionHandleA)).toBe(false);
       // Device B's session is STILL active
       expect(sessionStore.sessions.has(newSessionHandleB)).toBe(true);
-      // User's refreshToken is NOT wiped out because session B remains
-      expect(user.refreshToken).not.toBeNull();
 
       // 6. Device B can still refresh
       const refreshResB2 = await request(app)
@@ -307,6 +305,153 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       // Device A session must be revoked
       expect(sessionStore.sessions.has(handleA)).toBe(false);
       expect(sessionStore.sessions.size).toBe(1);
+    });
+  });
+
+  describe('Security and acceptance criteria for Issue #13', () => {
+    it('never calls userStore.updateRefreshToken with a non-null token when sessionStore is configured', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
+
+      await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      // Verify updateRefreshToken was never called with a non-null token
+      for (const call of (userStore.updateRefreshToken as any).mock.calls) {
+        expect(call[1]).toBeNull();
+      }
+    });
+
+    it('rejects replaying a revoked token with 401 SESSION_REVOKED even with checkOn: "none"', async () => {
+      const noneConfig: AuthConfig = {
+        ...config,
+        session: { checkOn: 'none' },
+      };
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(userStore, noneConfig, { sessionStore }));
+
+      const loginRes = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const cookies = parseCookies(loginRes);
+      const refresh = cookies['refreshToken'];
+
+      // Rotate session via refresh
+      const refRes1 = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      expect(refRes1.status).toBe(200);
+
+      // Replaying the old (now revoked) refresh token must return 401 SESSION_REVOKED even with checkOn: none
+      const refRes2 = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      expect(refRes2.status).toBe(401);
+      expect(refRes2.body).toEqual({
+        error: 'Session has been revoked',
+        code: 'SESSION_REVOKED',
+      });
+    });
+
+    it('rejects a refresh token whose sid session belongs to another userId with 401 Invalid refresh token', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
+
+      // Create a session for a different user 'other-user'
+      const otherSession = await sessionStore.createSession({
+        userId: 'other-user',
+        expiresAt: new Date(Date.now() + 100000),
+        createdAt: new Date(),
+      });
+
+      // Generate a refresh token for user.id ('u-device-1') but with sid of otherSession
+      const maliciousToken = tokenService.generateTokenPair({
+        sub: user.id,
+        email: user.email,
+        sid: otherSession.sessionHandle,
+      }, config).refreshToken;
+
+      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${maliciousToken}`);
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Invalid refresh token');
+    });
+
+    it('returns 500 and aborts token rotation when revokeSession fails during refresh', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
+
+      const loginRes = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const cookies = parseCookies(loginRes);
+      const refresh = cookies['refreshToken'];
+
+      // Mock revokeSession to reject
+      sessionStore.revokeSession.mockRejectedValueOnce(new Error('Store failure during revoke'));
+
+      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      expect(res.status).toBe(500);
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
+
+    it('throws in createAuthRouter when refreshTokenSecret equals accessTokenSecret and sessionStore is set', () => {
+      const badConfig: AuthConfig = {
+        ...config,
+        accessTokenSecret: 'same-secret-12345678901234567890',
+        refreshTokenSecret: 'same-secret-12345678901234567890',
+      };
+      expect(() => {
+        createAuthRouter(userStore, badConfig, { sessionStore });
+      }).toThrow('refreshTokenSecret must differ from accessTokenSecret');
+    });
+
+    it('works with a standard ISessionStore that does not implement updateSessionRefreshTokenHash', async () => {
+      class PlainSessionStore implements ISessionStore {
+        sessions = new Map<string, SessionInfo>();
+        createSession(s: Omit<SessionInfo, 'sessionHandle'>): Promise<SessionInfo> {
+          const handle = 'plain_' + Math.random().toString(36).slice(2);
+          const full: SessionInfo = { ...s, sessionHandle: handle };
+          this.sessions.set(handle, full);
+          return Promise.resolve(full);
+        }
+        getSession(h: string): Promise<SessionInfo | null> {
+          return Promise.resolve(this.sessions.get(h) ?? null);
+        }
+        revokeSession(h: string): Promise<boolean> {
+          return Promise.resolve(this.sessions.delete(h));
+        }
+        revokeAllSessionsForUser(uid: string): Promise<number> {
+          let count = 0;
+          for (const [h, s] of this.sessions) {
+            if (s.userId === uid) {
+              this.sessions.delete(h);
+              count++;
+            }
+          }
+          return Promise.resolve(count);
+        }
+      }
+
+      const plainStore = new PlainSessionStore();
+      const app = express();
+      app.use(express.json());
+      app.use('/auth', createAuthRouter(userStore, config, { sessionStore: plainStore }));
+
+      // Login A
+      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const refreshA = parseCookies(resA)['refreshToken'];
+      // Login B
+      const resB = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const refreshB = parseCookies(resB)['refreshToken'];
+
+      expect(plainStore.sessions.size).toBe(2);
+
+      // Refresh A
+      const refA = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
+      expect(refA.status).toBe(200);
+
+      // Old A replay fails
+      const replayA = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
+      expect(replayA.status).toBe(401);
+      expect(replayA.body.code).toBe('SESSION_REVOKED');
+
+      // Refresh B still works
+      const refB = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshB}`);
+      expect(refB.status).toBe(200);
     });
   });
 });

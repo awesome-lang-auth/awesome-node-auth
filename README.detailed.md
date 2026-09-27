@@ -110,6 +110,7 @@ export class MyUserStore implements IUserStore {
 
   // ---- Required: token field updates -----------------------------------------------
 
+  /** Single-device fallback when no ISessionStore is configured. With a sessionStore, tokens are per-session and not written here. */
   async updateRefreshToken(userId: string, token: string | null, expiry: Date | null): Promise<void> { /* ... */ }
   async updateResetToken(userId: string, token: string | null, expiry: Date | null): Promise<void> { /* ... */ }
   async updatePassword(userId: string, hashedPassword: string): Promise<void> { /* ... */ }
@@ -430,7 +431,7 @@ If they are on **completely different domains**:
 import { AuthConfig } from '@awesome-lang-auth/node';
 
 const config: AuthConfig = {
-  // Required
+  // Required (refreshTokenSecret must differ from accessTokenSecret when a sessionStore is configured)
   accessTokenSecret: process.env.ACCESS_TOKEN_SECRET!,
   refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET!,
 
@@ -728,8 +729,18 @@ app.use('/auth', auth.router({
 When `findOrCreateUser` throws an `AuthError` with code `'OAUTH_ACCOUNT_CONFLICT'`, the built-in OAuth callback automatically redirects to:
 
 ```
-{siteUrl}/auth/account-conflict?provider=google&code=OAUTH_ACCOUNT_CONFLICT&email=user%40example.com
+{siteUrl}{apiPrefix}/ui/account-conflict?provider=google&code=OAUTH_ACCOUNT_CONFLICT&email=user%40example.com
 ```
+(or `{siteUrl}{apiPrefix}/account-conflict?...` when `ui.enabled` is false; `apiPrefix` defaults to `/auth`).
+
+Note that `return_path` is ignored on account conflict redirects to prevent path pollution. If `allowedOrigins` is empty, any origin from state passes (same as `resolveOAuthRedirect`). (Note: a separate follow-up issue tracks the 2FA redirect path `${redirectTo}/auth/2fa?tempToken=...`).
+
+#### OAuth State Nonce CSRF Protection
+
+To protect against Login CSRF attacks where an attacker tricks a victim's browser into completing an OAuth callback with the attacker's authorization code:
+1. `GET /auth/oauth/<provider>` generates a secure random nonce, encodes it in the `state` parameter, and sets an `HttpOnly`, `SameSite=Lax` cookie (`oauth_nonce_<provider>` / `oauth_state`, valid for 10 minutes) scoped to the strategy callback path.
+2. `GET /auth/oauth/<provider>/callback` strictly validates that the cookie is present and that its nonce matches the nonce in the `state` query parameter using constant-time comparison (`crypto.timingSafeEqual`).
+3. If the cookie is missing, `state` is missing, or the nonces do not match, the callback rejects the request immediately with `400 {"error":"Invalid OAuth state","code":"INVALID_OAUTH_STATE"}` and never invokes `handleCallback`.
 
 When you also attach `{ email, providerAccountId }` to the thrown `AuthError`’s `data` field **and** provide a `pendingLinkStore` in `RouterOptions`, the library stashes the conflicting provider details automatically so the front-end can drive the full conflict-resolution flow without any custom server routes:
 
@@ -777,7 +788,7 @@ app.use('/auth', createAuthRouter(userStore, config, {
 **End-to-end unauthenticated conflict-linking flow:**
 
 1. User tries to sign in with Google; `findOrCreateUser` detects the email already belongs to an existing account and throws `AuthError('...', 'OAUTH_ACCOUNT_CONFLICT', 409, { email, providerAccountId })`.
-2. Library calls `pendingLinkStore.stash(email, 'google', providerAccountId)` and redirects the browser to `{siteUrl}/auth/account-conflict?provider=google&email=user%40example.com`.
+2. Library calls `pendingLinkStore.stash(email, 'google', providerAccountId)` and redirects the browser to `{siteUrl}{apiPrefix}/ui/account-conflict?provider=google&code=OAUTH_ACCOUNT_CONFLICT&email=user%40example.com` (or `{siteUrl}{apiPrefix}/account-conflict?...` if UI is disabled).
 3. Frontend prompts the user to verify ownership (e.g. sends a magic link / password check).  Once verified, the front-end has a `linkToken` from `POST /auth/link-request`.
 4. Frontend calls `POST /auth/link-verify` with `{ token, loginAfterLinking: true }`. The library retrieves the stashed `providerAccountId`, links the account, clears the stash, and returns a full session.
 
@@ -1812,7 +1823,7 @@ The `X-Auth-Strategy: bearer` header is respected by all token-issuing endpoints
 
 ### Logout (bearer)
 
-`POST /auth/logout` ends the session named by the `Authorization: Bearer` access token and/or by a `refreshToken` in the JSON body (as for `/auth/refresh`): it revokes the stateful session (with a `sessionStore`) and clears the stored refresh token, so that refresh token is refused afterwards. A refresh token in the body counts only while it is the user's current one. Send both when you have them; an expired access token alone cannot identify the session.
+`POST /auth/logout` ends the session named by the `Authorization: Bearer` access token and/or by a `refreshToken` in the JSON body (as for `/auth/refresh`): with a `sessionStore`, each session refreshes independently and logout revokes the specific session while its session exists in the store without invalidating other devices. Without a `sessionStore`, single-device fallback applies where a refresh token in the body counts only while it is the user's current one. Send both when you have them; an expired access token alone cannot identify the session.
 
 ```typescript
 await fetch('/auth/logout', {
@@ -2953,6 +2964,11 @@ Unauthenticated requests get `401 { "error": "Unauthorized" }`, whatever their `
 
 > **Security note:** By configuring an `accessPolicy` (e.g., `'first-user'`, `'is-admin-flag'`) and `jwtSecret`, the Admin UI requests a session. When an unauthenticated browser opens the panel (`GET <apiPrefix>/admin/`), it is redirected to `${loginPath}?redirect=<URL-encoded admin path>` if `loginPath` is set; otherwise the panel shows its own sign-in form. For further security in production, mount the admin router behind a VPN or IP allow-list.
 
+> **Input robustness:**
+> - Query parameters `limit`, `offset`, and `filter` in admin list endpoints accept a single string value. If a parameter is repeated (e.g. `?filter=a&filter=b`), the first value is used. Invalid or non-numeric values fall back to defaults (`offset: 0`, `limit: 20` or endpoint default).
+> - Cookies with malformed percent-encoding (`URIError`) are safely kept raw and do not cause 500 errors.
+> - Endpoints expecting a JSON body safely handle missing bodies or non-JSON payloads (`400` with descriptive error instead of `500`).
+
 ## RouterOptions
 
 All options passed to `auth.router(options)` (or `createAuthRouter(store, config, options)`):
@@ -3143,7 +3159,7 @@ buildTokenPayload: async (user) => ({
 
 You can control the performance/security trade-off via the `session.checkOn` option (with an `ISessionStore` passed to the router):
 
-- `none`: Purely stateless. Very fast, but tokens remain valid until they expire even if the session is deleted.
+- `none`: Purely stateless for access-token verification. Note that `POST /refresh` always validates session existence in the store even when `checkOn: 'none'`; a deleted or revoked session can no longer refresh (`401 SESSION_REVOKED`).
 - `refresh` (default): Validates the session only when a new Access Token is requested. Fast, and ensures that once a session is revoked, the user cannot get new tokens.
 - `allcalls`: Validates the session ID on **every single request** via middleware: the auth router's own protected routes (`/me`, `/sessions`, `/change-password`, ...) and `auth.middleware()` when it has a store (`auth.middleware({ sessionStore })`, or a call made after `auth.router({ sessionStore })`). A revoked session gets `401 SESSION_REVOKED` on the next call. Highest security, handles instant "kill-switch" revocation. Recommended with high-performance stores (Redis/In-Memory).
 

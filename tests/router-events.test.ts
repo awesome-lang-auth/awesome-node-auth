@@ -147,7 +147,9 @@ describe('router event payloads', () => {
       })],
     }));
 
-    const res = await request(app).get('/auth/oauth/fakeprovider/callback?code=fake-code');
+    const res = await request(app)
+      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=event-nonce')
+      .set('Cookie', 'oauth_nonce_fakeprovider=event-nonce');
 
     expect(res.status).toBe(302);
     const conflict = seen.find((e) => e.event === AuthEventNames.AUTH_OAUTH_CONFLICT);

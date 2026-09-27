@@ -1099,7 +1099,9 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
       pendingLinkStore: pendingStore,
     }));
 
-    const res = await request(app).get('/auth/oauth/fakeprovider/callback?code=fake-code');
+    const res = await request(app)
+      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=fake-nonce')
+      .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('account-conflict');
     expect(res.headers.location).toContain('provider=fakeprovider');
@@ -1124,7 +1126,9 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
       oauthStrategies: [new ConflictStrategyNoData(oauthProviderCfg)],
     }));
 
-    const res = await request(app).get('/auth/oauth/fakeprovider/callback?code=fake-code');
+    const res = await request(app)
+      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=fake-nonce')
+      .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('account-conflict');
     expect(res.headers.location).not.toContain('email=');
@@ -1289,10 +1293,10 @@ describe('Session Management', () => {
 
   it('refresh rotates the session (revokes old, creates new)', async () => {
     // Login to get an initial session
-    await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
+    const loginRes = await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
     const oldHandle = [...sessionStore.sessions.keys()][0];
-    const user = sessionUsers.get('u1')!;
-    const oldRefreshToken = user.refreshToken!;
+    const cookies = (loginRes.headers['set-cookie'] as unknown as string[]) ?? [];
+    const oldRefreshToken = cookies.find(c => c.startsWith('refreshToken='))?.split(';')[0].split('=')[1]!;
     expect(sessionStore.sessions.size).toBe(1);
 
     // Refresh

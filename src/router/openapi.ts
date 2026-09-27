@@ -404,10 +404,14 @@ export function buildAuthOpenApiSpec(
         summary: 'Handle Google OAuth callback',
         operationId: 'oauthGoogleCallback',
         tags: ['OAuth'],
-        parameters: [{ name: 'code', in: 'query', required: true, schema: { type: 'string' } }],
+        parameters: [
+          { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce and optional target origin' },
+        ],
         responses: {
           200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },
           302: { description: 'Redirect after login (cookie strategy)' },
+          400: { description: 'Invalid or missing OAuth state / CSRF token mismatch (INVALID_OAUTH_STATE)' },
           401: { description: 'OAuth failed' },
         },
       },
@@ -429,10 +433,14 @@ export function buildAuthOpenApiSpec(
         summary: 'Handle GitHub OAuth callback',
         operationId: 'oauthGithubCallback',
         tags: ['OAuth'],
-        parameters: [{ name: 'code', in: 'query', required: true, schema: { type: 'string' } }],
+        parameters: [
+          { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce and optional target origin' },
+        ],
         responses: {
           200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },
           302: { description: 'Redirect after login (cookie strategy)' },
+          400: { description: 'Invalid or missing OAuth state / CSRF token mismatch (INVALID_OAUTH_STATE)' },
           401: { description: 'OAuth failed' },
         },
       },
@@ -454,10 +462,14 @@ export function buildAuthOpenApiSpec(
         summary: `Handle ${providerName} OAuth callback`,
         operationId: `oauth${providerName.charAt(0).toUpperCase() + providerName.slice(1)}Callback`,
         tags: ['OAuth'],
-        parameters: [{ name: 'code', in: 'query', required: true, schema: { type: 'string' } }],
+        parameters: [
+          { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce and optional target origin' },
+        ],
         responses: {
           200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },
           302: { description: 'Redirect after login (cookie strategy)' },
+          400: { description: 'Invalid or missing OAuth state / CSRF token mismatch (INVALID_OAUTH_STATE)' },
           401: { description: 'OAuth failed' },
         },
       },
