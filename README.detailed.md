@@ -733,7 +733,7 @@ When `findOrCreateUser` throws an `AuthError` with code `'OAUTH_ACCOUNT_CONFLICT
 ```
 (or `{siteUrl}{apiPrefix}/account-conflict?...` when `ui.enabled` is false; `apiPrefix` defaults to `/auth`).
 
-#### OAuth Return Path Validation & State Binding (v1.10.4)
+#### OAuth Return Path Validation & State Binding (v1.10.4+)
 
 To protect against open redirects and state tampering:
 1. **`return_path` validation at flow start**:
@@ -742,12 +742,20 @@ To protect against open redirects and state tampering:
      - Must not contain backslashes (`\`) or control characters (`[\x00-\x1f\x7f]`).
      - Maximum length of 512 characters.
      - If validation fails, responds with HTTP `400 {"error":"Invalid return_path","code":"OAUTH_RETURN_PATH_INVALID"}` and **no cookie is set**.
-2. **Path restriction allowlist**:
-   - Configure `allowedReturnPaths?: (string | RegExp)[]` in `config.oauth?.allowedReturnPaths` or `options.allowedReturnPaths` (e.g. `['/oauth/done']`).
+2. **Path restriction allowlist & precedence**:
+   - Configure `allowedReturnPaths?: (string | RegExp)[]` in any of the 4 supported configuration locations (evaluated in exact order of precedence):
+     1. `options.allowedReturnPaths` (`RouterOptions.allowedReturnPaths`)
+     2. `options.oauth.allowedReturnPaths` (`RouterOptions.oauth.allowedReturnPaths`)
+     3. `config.allowedReturnPaths` (`AuthConfig.allowedReturnPaths`)
+     4. `config.oauth.allowedReturnPaths` (`AuthConfig.oauth.allowedReturnPaths`)
+   - Precedence selects the first non-empty array (`Array.isArray(x) && x.length > 0`); an empty array `[]` is treated as "not set" and falls through to the next level in precedence.
    - If configured and `return_path` does not match, returns HTTP 400 (`OAUTH_RETURN_PATH_INVALID`) without setting a cookie.
+   - **Matching rules**:
+     - **Strings**: String entries (e.g. `'/oauth/done'`) match on pathname and accept query parameters on the same origin (e.g. `/oauth/done?tab=profile` matches `'/oauth/done'`).
+     - **RegExps**: Regular expressions (e.g. `[/^\/dashboard(\/.*)?$/]`) are tested against the entire `return_path`. Stateful RegExps with the global (`/g`) or sticky (`/y`) flag automatically reset `lastIndex = 0` before and after testing so repeated calls never fail unexpectedly.
 3. **Cryptographic state binding and expiry**:
    - The state parameter embeds `{ n, o, p, exp, s }` where `exp` defaults to 10 minutes and `s` is an HMAC-SHA256 signature binding the nonce, origin, return path, and expiry using `config.accessTokenSecret`.
-   - On callback, the router verifies the nonce matches the `HttpOnly`, `SameSite=Lax` cookie, checks that the state has not expired (`Date.now() <= exp`), and verifies the HMAC signature. Any tampered state (e.g. altered `p`) is rejected immediately with HTTP 400 (`INVALID_OAUTH_STATE`) before invoking the provider strategy or token exchange.
+   - On callback, the router strictly requires structured state with `{ exp, s }`. It verifies that the state nonce matches the `HttpOnly`, `SameSite=Lax` cookie, checks that the state has not expired (`Date.now() <= exp`), and verifies the HMAC signature. Any tampered state (e.g. altered `p`, swapped `o`, stripped signature `s`, stripped `exp`, or bare nonce strings) is rejected immediately with HTTP 400 (`INVALID_OAUTH_STATE`) before invoking the provider strategy or token exchange.
 4. **Origin allowlist enforcement in production**:
    - An origin allowlist is built from `config.email.siteUrl` and `options.cors.origins`.
    - In production (`NODE_ENV === 'production'`), if the origin allowlist is empty, OAuth start routes refuse execution with HTTP 500 (`OAUTH_ORIGIN_ALLOWLIST_EMPTY`) and the callback refuses arbitrary origins from the state to prevent open redirects.
@@ -755,9 +763,9 @@ To protect against open redirects and state tampering:
 #### OAuth State Nonce CSRF Protection
 
 To protect against Login CSRF attacks where an attacker tricks a victim's browser into completing an OAuth callback with the attacker's authorization code:
-1. `GET /auth/oauth/<provider>` generates a secure random nonce, encodes it in the `state` parameter, and sets an `HttpOnly`, `SameSite=Lax` cookie (`oauth_nonce_<provider>` / `oauth_state`, valid for 10 minutes) scoped to the strategy callback path.
-2. `GET /auth/oauth/<provider>/callback` strictly validates that the cookie is present and that its nonce matches the nonce in the `state` query parameter using constant-time comparison (`crypto.timingSafeEqual`).
-3. If the cookie is missing, `state` is missing, or the nonces do not match, the callback rejects the request immediately with `400 {"error":"Invalid OAuth state","code":"INVALID_OAUTH_STATE"}` and never invokes `handleCallback`.
+1. `GET /auth/oauth/<provider>` generates a secure random nonce, encodes it in the `state` parameter, and sets exactly one `HttpOnly`, `SameSite=Lax` cookie (`oauth_nonce_<provider>` / `oauth_state`, valid for 10 minutes) scoped strictly to the strategy callback path (`path: callbackPath`).
+2. `GET /auth/oauth/<provider>/callback` strictly validates that the cookie is present, that the state is structured with valid signature and expiry, and that its nonce matches the nonce in the `state` query parameter using constant-time comparison (`crypto.timingSafeEqual`).
+3. If the cookie is missing, `state` is missing or invalid, or the nonces do not match, the callback rejects the request immediately with `400 {"error":"Invalid OAuth state","code":"INVALID_OAUTH_STATE"}` and never invokes `handleCallback`.
 
 When you also attach `{ email, providerAccountId }` to the thrown `AuthError`’s `data` field **and** provide a `pendingLinkStore` in `RouterOptions`, the library stashes the conflicting provider details automatically so the front-end can drive the full conflict-resolution flow without any custom server routes:
 

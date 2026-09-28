@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createAuthRouter } from '../src/router/auth.router';
+import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { BaseUser } from '../src/models/user.model';
 import { AuthConfig } from '../src/models/auth-config.model';
@@ -1099,8 +1099,9 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
       pendingLinkStore: pendingStore,
     }));
 
+    const state = encodeOAuthState('fake-nonce', conflictConfig.email!.siteUrl as string, undefined, undefined, conflictConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=fake-nonce')
+      .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('account-conflict');
@@ -1126,8 +1127,9 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
       oauthStrategies: [new ConflictStrategyNoData(oauthProviderCfg)],
     }));
 
+    const state = encodeOAuthState('fake-nonce', conflictConfig.email!.siteUrl as string, undefined, undefined, conflictConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=fake-nonce')
+      .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('account-conflict');

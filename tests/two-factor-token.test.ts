@@ -22,7 +22,7 @@ import { BaseUser } from '../src/models/user.model';
 import { PasswordService } from '../src/services/password.service';
 import { TokenService } from '../src/services/token.service';
 import { GenericOAuthStrategy, GenericOAuthProviderConfig } from '../src/strategies/oauth/generic-oauth.strategy';
-import { createAuthRouter } from '../src/router/auth.router';
+import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { createToolsRouter } from '../src/router/tools.router';
 import { AuthTools } from '../src/tools/auth-tools';
 import { AuthEventBus } from '../src/events/auth-event-bus';
@@ -295,8 +295,9 @@ describe('2FA step-up token', () => {
       oauthStrategies: [new DiscordStrategy(providerConfig)],
     }));
 
+    const state = encodeOAuthState('xyz', 'https://app.example.com', undefined, undefined, config.accessTokenSecret);
     const callback = await request(oauthApp)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(callback.status).toBe(302);
     const tempToken = new URL(callback.headers['location'] as string).searchParams.get('tempToken')!;

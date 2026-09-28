@@ -3,6 +3,28 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.6] — 2026-09-28
+
+### Security
+- **Strict OAuth state signature & expiry verification** (Issue #22 residuals):
+  - Callback endpoints (`/oauth/google/callback`, `/oauth/github/callback`, `/oauth/:name/callback`) now unconditionally require structured OAuth state containing valid expiry (`exp`) and cryptographic HMAC signature (`s`).
+  - Bare nonce strings, states missing `exp` or `s`, or states reduced to `{ n, o }` are strictly rejected with HTTP 400 (`INVALID_OAUTH_STATE`), preventing origin swapping or expiry bypass.
+- **Removed duplicate nonce cookie** (Issue #22 residuals / Issue #14):
+  - Removed duplicate `res.cookie` on `Path=/` in OAuth start routes; `oauth_nonce_*` is now set exclusively with `path: callbackPath`.
+
+### Fixed
+- **Stateful RegExp in `allowedReturnPaths`** (Issue #22 residuals):
+  - Reset `lastIndex = 0` before and after testing regular expressions with `/g` or `/y` flags in `validateReturnPath`, preventing consecutive logins from failing with HTTP 400.
+- **Precedence fallback for empty `allowedReturnPaths: []`** (Issue #22 residuals):
+  - Treat empty array `[]` as "not set", properly falling through across all 4 configuration candidates without defeating restriction rules.
+
+### Documentation
+- **Documented all 4 configuration locations for `allowedReturnPaths` and precedence** (Issue #22 residuals):
+  - Clarified precedence order: `RouterOptions.allowedReturnPaths` > `RouterOptions.oauth.allowedReturnPaths` > `AuthConfig.allowedReturnPaths` > `AuthConfig.oauth.allowedReturnPaths`.
+  - Documented that string entries (e.g. `'/oauth/done'`) match on pathname and allow query parameters on the same origin (e.g. `/oauth/done?tab=profile`).
+
+---
+
 ## [1.10.5] — 2026-09-28
 
 ### Added
