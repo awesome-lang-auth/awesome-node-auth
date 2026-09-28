@@ -786,10 +786,13 @@ export function buildAdminOpenApiSpec(
       operationId: 'adminDeleteUser',
       tags: ['Admin — Users'],
       security: [adminAuth],
-      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      parameters: [{ name: 'id', in: 'path', required: true, description: 'User ID', schema: { type: 'string' } }],
       responses: {
         200: { description: 'User deleted', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } } },
         401: { description: 'Unauthorized' },
+        404: { description: 'User not found' },
+        409: { description: 'Conflict or deletion aborted by onBeforeDeleteUser hook' },
+        501: { description: 'IUserStore.deleteUser is not implemented' },
       },
     },
   };
@@ -800,7 +803,7 @@ export function buildAdminOpenApiSpec(
       operationId: 'adminSendVerificationEmail',
       tags: ['Admin — Users'],
       security: [adminAuth],
-      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      parameters: [{ name: 'id', in: 'path', required: true, description: 'User ID or URL-encoded email address', schema: { type: 'string' } }],
       requestBody: {
         required: false,
         content: {
@@ -819,7 +822,7 @@ export function buildAdminOpenApiSpec(
         400: { description: 'Email is already verified' },
         401: { description: 'Unauthorized' },
         404: { description: 'User not found' },
-        500: { description: 'Server error or email verification not configured' },
+        501: { description: 'Email verification mailer is not configured or UserStore does not implement email verification' },
       },
     },
   };

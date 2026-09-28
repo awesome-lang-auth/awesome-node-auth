@@ -173,6 +173,23 @@ Full configuration reference → [README.detailed.md § Configuration](./README.
 
 ---
 
+## Cookie Management
+
+Clear auth cookies on demand using `clearAuthCookies` or `TokenService.prototype.clearTokenCookies`:
+
+```typescript
+import { clearAuthCookies, TokenService } from '@awesome-lang-auth/node';
+
+// Functional helper:
+clearAuthCookies(res, authConfig);
+
+// Via service instance:
+const tokenService = new TokenService();
+tokenService.clearTokenCookies(res, authConfig);
+```
+
+---
+
 ## Admin UI
 
 Use `auth.buildAllRouters({ admin: ... })` to mount both the main auth router and the admin router together. The admin router lives at `/auth/admin/*`, and `jwtSecret` is auto-filled from `AuthConfig.accessTokenSecret`. Set `accessPolicy` (or a non-empty legacy `adminSecret`): without either, the admin routes are mounted **unprotected** and a `WARNING` is written to `stderr`. Without `accessPolicy`, an `adminSecret` that is present but empty (an unset environment variable, for example) throws a configuration error at startup.

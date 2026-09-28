@@ -3,6 +3,33 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.7] — 2026-09-28
+
+### Added
+- **Route alias `DELETE /users/:id` on admin router** (Issue #26):
+  - Added route alias `DELETE /users/:id` matching `DELETE /admin/api/users/:id` on the admin router for symmetry with `/users/:id/send-verification-email`.
+- **Reason codes `no_mailer` and `unsupported_store` for verification email triggers** (Issue #26):
+  - `performSendVerificationEmail` returns `{ sent: false, reason: 'no_mailer' }` when no mailer is configured (without generating or persisting a verification token).
+  - Returns `{ sent: false, reason: 'unsupported_store' }` when `userStore` lacks `updateEmailVerificationToken` or `updateEmailVerified` instead of throwing an Error.
+  - Endpoints (`POST /auth/send-verification-email` and `POST /admin/api/users/:id/send-verification-email`) map both reasons to HTTP 501.
+
+### Fixed
+- **Admin delete hook error status code propagation** (Issue #26):
+  - In `deleteUserHandler`, caught `AuthError` instances propagate `err.statusCode` (e.g. 409) and `err.code` to the HTTP response, rather than collapsing to generic HTTP 500.
+  - Enhanced `AuthError` constructor to accept either `(message, code, statusCode)` or `(message, statusCode, code)`.
+- **Admin delete non-existent user returns 404 before hook** (Issue #26):
+  - `deleteUserHandler` now checks `await userStore.findById(userId)` first; if the user does not exist, returns HTTP 404 (`User not found`) immediately without invoking `onBeforeDeleteUser`.
+- **Automatic prefix derivation for verification email links** (Issue #26):
+  - `AuthConfigurator.sendVerificationEmail`, `createAdminRouter`, and `performSendVerificationEmail` now default `routerOptions` to active configuration (e.g. `_lastRouterOptions` or `{ apiPrefix: config.apiPrefix }`) if not explicitly passed, ensuring UI links correctly use the configured prefix instead of falling back to `/auth`.
+
+### Documentation
+- **Admin send verification email accepts ID or email** (Issue #26):
+  - Documented in OpenAPI specification, `README.md`, and `README.detailed.md` that `POST /admin/api/users/:id/send-verification-email` accepts either a user ID or URL-encoded email address in the `:id` parameter.
+- **Cookie clearing helper functions documented** (Issue #26):
+  - Documented `clearAuthCookies(res, config)` and `tokenService.clearTokenCookies(res, config)` in `README.md` and `README.detailed.md`.
+
+---
+
 ## [1.10.6] — 2026-09-28
 
 ### Security

@@ -20,6 +20,7 @@ import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
 import { AuthConfig } from '../models/auth-config.model';
+import { AuthError } from '../models/errors';
 import { BeforeDeleteUserHook, RouterOptions, performSendVerificationEmail } from './auth.router';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
@@ -978,7 +979,7 @@ export function createAdminRouter(
   });
 
   // DELETE /admin/api/users/:id — delete user (requires userStore to have a delete method if available)
-  router.delete('/api/users/:id', guard, async (req: Request, res: Response) => {
+  const deleteUserHandler = async (req: Request, res: Response) => {
     try {
       const store = userStore as unknown as Record<string, unknown>;
       if (typeof store['deleteUser'] !== 'function') {
@@ -986,40 +987,51 @@ export function createAdminRouter(
         return;
       }
       const userId = req.params['id'] as string;
+      const user = await userStore.findById(userId);
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
       if (options.onBeforeDeleteUser) {
         await options.onBeforeDeleteUser(userId, { req, source: 'admin' });
       }
       await (store['deleteUser'] as (id: string) => Promise<void>)(userId);
       res.json({ success: true });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+      if (err instanceof AuthError) {
+        res.status(err.statusCode).json({ error: err.message, code: err.code });
+      } else {
+        res.status(500).json({ error: 'Internal server error' });
+      }
     }
-  });
+  };
+  router.delete('/api/users/:id', guard, deleteUserHandler);
+  /** @deprecated Use `DELETE /api/users/:id`; kept as an alias with the same guard and behaviour. */
+  router.delete('/users/:id', guard, deleteUserHandler);
 
   // POST /admin/api/users/:id/send-verification-email — send verification email for a user
+  // Note: :id parameter accepts either a user ID or a URL-encoded email address
   const sendVerificationEmailHandler = async (req: Request, res: Response) => {
     try {
       if (!options.authConfig) {
         res.status(500).json({ error: 'AuthConfig is required for email verification' });
         return;
       }
-      if (!userStore.updateEmailVerificationToken || !userStore.updateEmailVerified) {
-        res.status(500).json({ error: 'UserStore does not implement email verification' });
-        return;
-      }
-      const userId = req.params['id'] as string;
+      const userIdOrEmail = decodeURIComponent(req.params['id'] as string);
       const { emailLang } = (req.body ?? {}) as { emailLang?: string };
       const siteUrl = options.authConfig.email?.siteUrl
         ? (Array.isArray(options.authConfig.email.siteUrl) ? options.authConfig.email.siteUrl[0] : options.authConfig.email.siteUrl)
         : '';
+      const effectiveRouterOptions =
+        options.routerOptions ?? (options.apiPrefix ? { apiPrefix: options.apiPrefix } : undefined);
       const result = await performSendVerificationEmail(
         userStore,
         options.authConfig,
-        userId,
+        userIdOrEmail,
         {
           emailLang,
           siteUrl,
-          routerOptions: options.routerOptions,
+          routerOptions: effectiveRouterOptions,
         },
       );
       if (!result.sent) {
@@ -1029,6 +1041,14 @@ export function createAdminRouter(
         }
         if (result.reason === 'already_verified') {
           res.status(400).json({ error: 'Email is already verified' });
+          return;
+        }
+        if (result.reason === 'unsupported_store') {
+          res.status(501).json({ error: 'UserStore does not implement email verification' });
+          return;
+        }
+        if (result.reason === 'no_mailer') {
+          res.status(501).json({ error: 'Email verification mailer is not configured' });
           return;
         }
       }

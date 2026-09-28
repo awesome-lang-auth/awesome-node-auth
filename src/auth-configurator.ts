@@ -58,6 +58,7 @@ export class AuthConfigurator {
   private readonly _tokenService: TokenService;
   private readonly _passwordService: PasswordService;
   private _sessionStore?: ISessionStore;
+  private _lastRouterOptions?: RouterOptions;
 
   constructor(
     private readonly config: AuthConfig,
@@ -76,6 +77,7 @@ export class AuthConfigurator {
     if (options?.sessionStore) {
       this._sessionStore = options.sessionStore;
     }
+    this._lastRouterOptions = options;
     return createAuthRouter(this.userStore, this.config, {
       ...options,
       eventBus: options?.eventBus ?? this.options.eventBus,
@@ -86,6 +88,7 @@ export class AuthConfigurator {
   buildAllRouters(options: BuildAllRoutersOptions): Router {
     const composite = Router();
     const authOptions = options.auth;
+    this._lastRouterOptions = authOptions;
     const authPrefix = resolveApiPrefix(this.config, authOptions);
     const normalizedPrefix = authPrefix.endsWith('/') ? authPrefix.slice(0, -1) : authPrefix;
     composite.use(
@@ -115,11 +118,17 @@ export class AuthConfigurator {
     userIdOrEmail: string,
     opts?: SendVerificationEmailOptions,
   ): Promise<SendVerificationEmailResult> {
+    const defaultRouterOpts =
+      this._lastRouterOptions ?? (this.config.apiPrefix ? { apiPrefix: this.config.apiPrefix } : undefined);
+    const mergedOpts: SendVerificationEmailOptions = {
+      routerOptions: opts?.routerOptions ?? defaultRouterOpts,
+      ...opts,
+    };
     return performSendVerificationEmail(
       this.userStore,
       this.config,
       userIdOrEmail,
-      opts,
+      mergedOpts,
       this._tokenService,
     );
   }

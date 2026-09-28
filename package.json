@@ -1,6 +1,6 @@
 {
   "name": "@awesome-lang-auth/node",
-  "version": "1.10.6",
+  "version": "1.10.7",
   "description": "Database-agnostic JWT authentication and communication bus for Node.js",
   "main": "dist/index.js",
   "scripts": {

@@ -47,7 +47,7 @@ export interface SendVerificationEmailOptions {
 
 export interface SendVerificationEmailResult {
   sent: boolean;
-  reason?: 'already_verified' | 'not_found';
+  reason?: 'already_verified' | 'not_found' | 'no_mailer' | 'unsupported_store';
 }
 
 export interface RouterOptions {
@@ -361,7 +361,7 @@ export async function performSendVerificationEmail(
   tokenServiceInstance: TokenService = tokenService,
 ): Promise<SendVerificationEmailResult> {
   if (!userStore.updateEmailVerificationToken || !userStore.updateEmailVerified) {
-    throw new Error('UserStore does not implement email verification');
+    return { sent: false, reason: 'unsupported_store' };
   }
 
   let user: BaseUser | null = await userStore.findById(userIdOrEmail);
@@ -375,17 +375,21 @@ export async function performSendVerificationEmail(
     return { sent: false, reason: 'already_verified' };
   }
 
+  if (!config.email?.sendVerificationEmail && !config.email?.mailer) {
+    return { sent: false, reason: 'no_mailer' };
+  }
+
   const token = tokenServiceInstance.generateSecureToken();
   const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
   await userStore.updateEmailVerificationToken(user.id, token, expiry);
 
   const baseSiteUrl = opts?.siteUrl ?? getDefaultSiteUrl(config);
-  const routerOpts = opts?.routerOptions ?? {};
+  const routerOpts = opts?.routerOptions ?? (config.apiPrefix ? { apiPrefix: config.apiPrefix } : {});
   const link = buildUiLink(baseSiteUrl, `/verify-email?token=${token}`, config, routerOpts);
 
-  if (config.email?.sendVerificationEmail) {
+  if (config.email.sendVerificationEmail) {
     await config.email.sendVerificationEmail(user.email, token, link, opts?.emailLang);
-  } else if (config.email?.mailer) {
+  } else if (config.email.mailer) {
     const mailer = new MailerService(config.email.mailer, config.templateStore);
     await mailer.sendVerificationEmail(user.email, token, link, opts?.emailLang);
   }
@@ -1494,6 +1498,14 @@ export function createAuthRouter(
         }
         if (result.reason === 'already_verified') {
           res.status(400).json({ error: 'Email is already verified' });
+          return;
+        }
+        if (result.reason === 'unsupported_store') {
+          res.status(501).json({ error: 'UserStore does not implement email verification' });
+          return;
+        }
+        if (result.reason === 'no_mailer') {
+          res.status(501).json({ error: 'Email verification mailer is not configured' });
           return;
         }
       }
