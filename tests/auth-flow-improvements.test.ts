@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createAuthRouter } from '../src/router/auth.router';
+import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { ILinkedAccountsStore, LinkedAccount } from '../src/interfaces/linked-accounts-store.interface';
 import { IPendingLinkStore } from '../src/interfaces/pending-link-store.interface';
@@ -738,8 +738,9 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     app.use('/auth', createAuthRouter(store, mobileOAuthConfig, {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
+    const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
     // Server redirects to the app's custom scheme — mobile can intercept this
@@ -765,8 +766,9 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     app.use('/auth', createAuthRouter(store, mobileOAuthConfig, {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
+    const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
     const location = res.headers['location'] as string;
@@ -800,8 +802,9 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
       eventBus: bus,
     }));
 
+    const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
 
     expect(res.status).toBe(302);
@@ -833,8 +836,9 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     }));
 
     // Step 1: OAuth callback → server redirects to siteUrl/auth/2fa?tempToken=...
+    const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
     const callbackRes = await request(app)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(callbackRes.status).toBe(302);
     const location = callbackRes.headers['location'] as string;
@@ -876,8 +880,9 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
       oauthStrategies: [new DiscordStrategy(discordCfg)],
       linkedAccountsStore,
     }));
+    const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/discord/callback?code=abc&state=xyz')
+      .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
     expect(linkedAccountsStore.linkAccount).toHaveBeenCalledWith('d1', {
@@ -993,7 +998,7 @@ describe('Dynamic CORS and siteUrl', () => {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
     // Encode state with admin origin (second allowed origin)
-    const encodedState = Buffer.from(JSON.stringify({ n: 'abc123', o: 'https://admin.example.com' })).toString('base64url');
+    const encodedState = encodeOAuthState('abc123', 'https://admin.example.com', undefined, undefined, multiOriginConfig.accessTokenSecret);
     const res = await request(app)
       .get(`/auth/oauth/discord/callback?code=xyz&state=${encodedState}`)
       .set('Cookie', 'oauth_nonce_discord=abc123');
@@ -1016,7 +1021,7 @@ describe('Dynamic CORS and siteUrl', () => {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
     // State contains an origin NOT in the allowlist
-    const maliciousState = Buffer.from(JSON.stringify({ n: 'abc123', o: 'https://evil.example.com' })).toString('base64url');
+    const maliciousState = encodeOAuthState('abc123', 'https://evil.example.com', undefined, undefined, multiOriginConfig.accessTokenSecret);
     const res = await request(app)
       .get(`/auth/oauth/discord/callback?code=xyz&state=${maliciousState}`)
       .set('Cookie', 'oauth_nonce_discord=abc123');
@@ -1041,8 +1046,9 @@ describe('Dynamic CORS and siteUrl', () => {
     app.use('/auth', createAuthRouter(store, singleConfig, {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
+    const encodedState = encodeOAuthState('plainNonce', 'https://single.example.com', undefined, undefined, singleConfig.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/discord/callback?code=xyz&state=plainNonce')
+      .get(`/auth/oauth/discord/callback?code=xyz&state=${encodedState}`)
       .set('Cookie', 'oauth_nonce_discord=plainNonce');
     expect(res.status).toBe(302);
     expect(res.headers['location']).toBe('https://single.example.com');

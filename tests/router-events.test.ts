@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createAuthRouter } from '../src/router/auth.router';
+import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
 import { AuthConfigurator } from '../src/auth-configurator';
 import { AuthConfig } from '../src/models/auth-config.model';
@@ -147,8 +147,9 @@ describe('router event payloads', () => {
       })],
     }));
 
+    const state = encodeOAuthState('event-nonce', 'http://localhost:3000', undefined, undefined, config.accessTokenSecret);
     const res = await request(app)
-      .get('/auth/oauth/fakeprovider/callback?code=fake-code&state=event-nonce')
+      .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=event-nonce');
 
     expect(res.status).toBe(302);

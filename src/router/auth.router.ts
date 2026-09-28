@@ -434,7 +434,10 @@ export function validateReturnPath(
         return returnPath === allowed || returnPath.split('?')[0] === allowed;
       }
       if (allowed instanceof RegExp) {
-        return allowed.test(returnPath);
+        allowed.lastIndex = 0;
+        const matched = allowed.test(returnPath);
+        allowed.lastIndex = 0;
+        return matched;
       }
       return false;
     });
@@ -573,55 +576,56 @@ function verifyOAuthState(
 
   const rawState = (req.query as Record<string, unknown>)['state'];
   const stateStr = typeof rawState === 'string' ? rawState : undefined;
-  const stateNonce = decodeOAuthStateNonce(stateStr);
+  if (!stateStr) {
+    throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
+  }
 
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(stateStr, 'base64url').toString());
+  } catch {
+    throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
+  }
+
+  if (!isOAuthState(parsed)) {
+    throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
+  }
+
+  const stateNonce = parsed.n;
   const a = Buffer.from(cookieVal ?? '');
   const b = Buffer.from(stateNonce ?? '');
   if (!cookieVal || !stateNonce || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
   }
 
-  // Parse structured state if present to verify expiry, signature, and return_path
-  if (stateStr) {
-    try {
-      const parsed: unknown = JSON.parse(Buffer.from(stateStr, 'base64url').toString());
-      if (isOAuthState(parsed)) {
-        // 1. Expiry verification
-        if (parsed.exp !== undefined) {
-          if (typeof parsed.exp !== 'number' || Date.now() > parsed.exp) {
-            throw new AuthError('OAuth state expired', 'INVALID_OAUTH_STATE', 400);
-          }
-        }
+  // Structured OAuth state MUST always include expiration and cryptographic signature
+  if (typeof parsed.exp !== 'number' || typeof parsed.s !== 'string' || !parsed.s) {
+    throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
+  }
 
-        // 2. Cryptographic signature verification
-        if (parsed.s !== undefined || parsed.exp !== undefined || parsed.p !== undefined) {
-          if (!parsed.s || typeof parsed.exp !== 'number') {
-            throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
-          }
-          const expectedSig = computeOAuthStateSignature(
-            parsed.n,
-            parsed.o,
-            parsed.p,
-            parsed.exp,
-            config.accessTokenSecret
-          );
-          const sigBuf = Buffer.from(parsed.s);
-          const expSigBuf = Buffer.from(expectedSig);
-          if (sigBuf.length !== expSigBuf.length || !crypto.timingSafeEqual(sigBuf, expSigBuf)) {
-            throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
-          }
-        }
+  // 1. Expiry verification
+  if (Date.now() > parsed.exp) {
+    throw new AuthError('OAuth state expired', 'INVALID_OAUTH_STATE', 400);
+  }
 
-        // 3. Re-validate return_path against syntax and allowlist
-        if (parsed.p !== undefined) {
-          if (!validateReturnPath(parsed.p, allowedReturnPaths)) {
-            throw new AuthError('Invalid return_path in OAuth state', 'INVALID_OAUTH_STATE', 400);
-          }
-        }
-      }
-    } catch (err) {
-      if (err instanceof AuthError) throw err;
-      // non-JSON plain string legacy nonce handled above by timingSafeEqual
+  // 2. Cryptographic signature verification
+  const expectedSig = computeOAuthStateSignature(
+    parsed.n,
+    parsed.o,
+    parsed.p,
+    parsed.exp,
+    config.accessTokenSecret
+  );
+  const sigBuf = Buffer.from(parsed.s);
+  const expSigBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expSigBuf.length || !crypto.timingSafeEqual(sigBuf, expSigBuf)) {
+    throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
+  }
+
+  // 3. Re-validate return_path against syntax and allowlist
+  if (parsed.p !== undefined) {
+    if (!validateReturnPath(parsed.p, allowedReturnPaths)) {
+      throw new AuthError('Invalid return_path in OAuth state', 'INVALID_OAUTH_STATE', 400);
     }
   }
 }
@@ -827,10 +831,19 @@ export function createAuthRouter(
       console.warn('[node-auth] Notice: OAuth origin allowlist (email.siteUrl or cors.origins) is empty. In production, an allowlist is required.');
     }
   }
-  const allowedReturnPaths = options.allowedReturnPaths
-    ?? options.oauth?.allowedReturnPaths
-    ?? config.allowedReturnPaths
-    ?? config.oauth?.allowedReturnPaths;
+  const returnPathCandidates = [
+    options.allowedReturnPaths,
+    options.oauth?.allowedReturnPaths,
+    config.allowedReturnPaths,
+    config.oauth?.allowedReturnPaths,
+  ];
+  let allowedReturnPaths: (string | RegExp)[] | undefined;
+  for (const c of returnPathCandidates) {
+    if (Array.isArray(c) && c.length > 0) {
+      allowedReturnPaths = c;
+      break;
+    }
+  }
   const isResourceServer = config.resourceServer?.enabled === true;
   const eventBus = options.eventBus;
   // Built-in register handler (opt-in via `defaultRegister: true`). It persists
@@ -1914,13 +1927,6 @@ export function createAuthRouter(
         ...oauthStateCookieOpts(callbackPath, config, req),
         maxAge: 10 * 60 * 1000,
       });
-      res.cookie('oauth_nonce_google', nonce, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
-        maxAge: 10 * 60 * 1000,
-        path: '/',
-      });
       res.redirect(url);
     });
     router.get('/oauth/google/callback', ...rl, async (req: Request, res: Response) => {
@@ -2000,13 +2006,6 @@ export function createAuthRouter(
       res.cookie('oauth_nonce_github', nonce, {
         ...oauthStateCookieOpts(callbackPath, config, req),
         maxAge: 10 * 60 * 1000,
-      });
-      res.cookie('oauth_nonce_github', nonce, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
-        maxAge: 10 * 60 * 1000,
-        path: '/',
       });
       res.redirect(url);
     });
@@ -2088,13 +2087,6 @@ export function createAuthRouter(
         res.cookie(`oauth_nonce_${s.name}`, nonce, {
           ...oauthStateCookieOpts(callbackPath, config, req),
           maxAge: 10 * 60 * 1000,
-        });
-        res.cookie(`oauth_nonce_${s.name}`, nonce, {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: config.cookieOptions?.secure ?? (req.secure || req.headers['x-forwarded-proto'] === 'https'),
-          maxAge: 10 * 60 * 1000,
-          path: '/',
         });
         res.redirect(url);
       });
