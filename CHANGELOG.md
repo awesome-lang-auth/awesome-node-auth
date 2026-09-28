@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 
 ---
 
+## [1.10.3] — 2026-09-28
+
+### Security
+- **OAuth state nonce CSRF protection completed** (Issue #14):
+  - Strictly enforce matching cookie and state nonce across Google, GitHub, and generic strategies.
+  - Return HTTP 400 (`INVALID_OAUTH_STATE`) on missing cookie, missing state parameter, or mismatched nonces via constant-time comparison (`crypto.timingSafeEqual`).
+  - Scoped state cookie to the callback path.
+- **Refresh token multi-device security** (Issue #13):
+  - Disallow `refreshTokenSecret === accessTokenSecret` when a `sessionStore` is configured (throws fast on router construction).
+  - Always validate active session existence in the store during `/refresh` even when `checkOn: 'none'`, rejecting revoked sessions with `401 SESSION_REVOKED`.
+  - Validate session ownership matches token subject (`session.userId === payload.sub`).
+  - Propagate `revokeSession` store failures during `/refresh` as an HTTP 500 error instead of swallowing, preventing old rotated tokens from remaining replayable.
+
+### Fixed
+- **Multi-device session isolation** (Issue #13):
+  - Skip `userStore.updateRefreshToken` unconditionally when `sessionStore` is configured, preventing cross-device session overwrite.
+- **OAuth conflict redirect & 4xx robustness** (Issues #15, #16):
+  - Prevent return_path pollution during account conflict redirects.
+  - Safe URI error handling and defensive `req.body` handling on admin routes.
+
+---
+
 ## [1.10.2] — 2026-09-27
 
 ### Security
