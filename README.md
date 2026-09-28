@@ -69,7 +69,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 
 | Area | Highlights |
 |---|---|
-| **Auth strategies** | Email/password · OAuth 2.0 (Google, GitHub, custom) · Magic links · SMS OTP · TOTP 2FA |
+| **Auth strategies** | Email/password · OAuth 2.0 (Google, GitHub, custom with return_path validation & HMAC state binding) · Magic links · SMS OTP · TOTP 2FA |
 | **Token management** | HttpOnly-cookie or Bearer mode · automatic access/refresh rotation · `__Host-`/`__Secure-` cookie prefixes |
 | **Identity Provider (IdP) mode** *(v1.9)* | RS256-signed JWTs · public JWKS endpoint (`/.well-known/jwks.json`) · Resource Server middleware · zero new dependencies |
 | **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · works behind your own L1/L2 cache layers |

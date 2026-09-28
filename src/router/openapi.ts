@@ -396,7 +396,19 @@ export function buildAuthOpenApiSpec(
         summary: 'Redirect to Google OAuth consent screen',
         operationId: 'oauthGoogleRedirect',
         tags: ['OAuth'],
-        responses: { 302: { description: 'Redirect to Google' } },
+        parameters: [
+          {
+            name: 'return_path',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', maxLength: 512 },
+            description: 'Optional relative path to redirect to after successful authentication (e.g. /dashboard). Must start with a single slash.',
+          },
+        ],
+        responses: {
+          302: { description: 'Redirect to Google' },
+          400: { description: 'Invalid return_path (OAUTH_RETURN_PATH_INVALID)' },
+        },
       },
     };
     paths[`${basePath}/oauth/google/callback`] = {
@@ -406,7 +418,7 @@ export function buildAuthOpenApiSpec(
         tags: ['OAuth'],
         parameters: [
           { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
-          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce and optional target origin' },
+          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce, optional target origin, and return path' },
         ],
         responses: {
           200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },
@@ -425,7 +437,19 @@ export function buildAuthOpenApiSpec(
         summary: 'Redirect to GitHub OAuth consent screen',
         operationId: 'oauthGithubRedirect',
         tags: ['OAuth'],
-        responses: { 302: { description: 'Redirect to GitHub' } },
+        parameters: [
+          {
+            name: 'return_path',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', maxLength: 512 },
+            description: 'Optional relative path to redirect to after successful authentication (e.g. /dashboard). Must start with a single slash.',
+          },
+        ],
+        responses: {
+          302: { description: 'Redirect to GitHub' },
+          400: { description: 'Invalid return_path (OAUTH_RETURN_PATH_INVALID)' },
+        },
       },
     };
     paths[`${basePath}/oauth/github/callback`] = {
@@ -435,7 +459,7 @@ export function buildAuthOpenApiSpec(
         tags: ['OAuth'],
         parameters: [
           { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
-          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce and optional target origin' },
+          { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'OAuth state nonce, optional target origin, and return path' },
         ],
         responses: {
           200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },
@@ -454,7 +478,19 @@ export function buildAuthOpenApiSpec(
         summary: `Redirect to ${providerName} OAuth consent screen`,
         operationId: `oauth${providerName.charAt(0).toUpperCase() + providerName.slice(1)}Redirect`,
         tags: ['OAuth'],
-        responses: { 302: { description: `Redirect to ${providerName}` } },
+        parameters: [
+          {
+            name: 'return_path',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', maxLength: 512 },
+            description: 'Optional relative path to redirect to after successful authentication (e.g. /dashboard). Must start with a single slash.',
+          },
+        ],
+        responses: {
+          302: { description: `Redirect to ${providerName}` },
+          400: { description: 'Invalid return_path (OAUTH_RETURN_PATH_INVALID)' },
+        },
       },
     };
     paths[`${basePath}/oauth/${providerName}/callback`] = {

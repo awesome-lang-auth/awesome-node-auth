@@ -43,6 +43,20 @@ export interface RouterOptions {
    *   GET  /auth/oauth/:name/callback   — handle provider callback
    */
   oauthStrategies?: GenericOAuthStrategy[];
+  /**
+   * OAuth configuration options for the router.
+   */
+  oauth?: {
+    /**
+     * Optional allowlist of return paths permitted in OAuth start requests (`?return_path=...`).
+     * Entries can be exact strings (e.g. `'/oauth/done'`) or Regular Expressions (e.g. `/^\/dashboard(\/.*)?$/`).
+     */
+    allowedReturnPaths?: (string | RegExp)[];
+  };
+  /**
+   * Optional shorthand for allowedReturnPaths directly on RouterOptions.
+   */
+  allowedReturnPaths?: (string | RegExp)[];
   /** Optional rate limiter middleware applied to sensitive auth endpoints (login, refresh, password reset, etc.).
    *
    * Accepts any Express `RequestHandler` (e.g. `express-rate-limit`) as well
@@ -309,26 +323,110 @@ export function buildUiLink(siteUrl: string, path: string, config: AuthConfig, o
 }
 
 /**
- * Encodes `{ n: nonce, o: resolvedOrigin, p?: path }` as a URL-safe base64
- * string for use as the OAuth `state` parameter.  Embedding the origin lets
- * the callback redirect back to the exact origin that started the flow, even
- * when multiple front-ends share a single auth server.  The optional `p` field
- * encodes the post-login path (e.g. `/example/account`).
+ * Validates a `return_path` parameter according to security requirements:
+ * 1. Must be a string.
+ * 2. Must start with a single '/' (cannot start with '//', 'https:', etc.).
+ * 3. Cannot contain backslashes ('\').
+ * 4. Cannot contain control characters (ASCII 0-31, 127).
+ * 5. Maximum length: 512 characters.
+ * 6. If `allowedReturnPaths` is specified, it must match at least one entry
+ *    (exact string match or RegExp test).
+ * @public
  */
-function encodeOAuthState(nonce: string, redirectOrigin: string, returnPath?: string): string {
-  const payload: Record<string, string> = { n: nonce, o: redirectOrigin };
-  if (returnPath) payload['p'] = returnPath;
-  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+export function validateReturnPath(
+  returnPath: unknown,
+  allowedReturnPaths?: (string | RegExp)[]
+): boolean {
+  if (typeof returnPath !== 'string') {
+    return false;
+  }
+  // Must start with single / and not //
+  if (!returnPath.startsWith('/') || returnPath.startsWith('//')) {
+    return false;
+  }
+  // No backslashes
+  if (returnPath.includes('\\')) {
+    return false;
+  }
+  // No control characters (ASCII 0-31 and 127)
+  if (/[\x00-\x1f\x7f]/.test(returnPath)) {
+    return false;
+  }
+  // Maximum length 512
+  if (returnPath.length > 512) {
+    return false;
+  }
+  // Check against allowedReturnPaths if provided
+  if (allowedReturnPaths && allowedReturnPaths.length > 0) {
+    const matches = allowedReturnPaths.some((allowed) => {
+      if (typeof allowed === 'string') {
+        return returnPath === allowed || returnPath.split('?')[0] === allowed;
+      }
+      if (allowed instanceof RegExp) {
+        return allowed.test(returnPath);
+      }
+      return false;
+    });
+    if (!matches) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Shape of the structured OAuth state parameter. */
-interface OAuthState {
+export interface OAuthState {
   /** Random nonce (CSRF protection). */
   n: string;
   /** Pre-validated redirect origin embedded at flow initiation. */
   o: string;
   /** Optional post-login path within the origin (e.g. `/example/account`). */
   p?: string;
+  /** State expiry timestamp in milliseconds. */
+  exp?: number;
+  /** HMAC-SHA256 signature binding n, o, p, exp. */
+  s?: string;
+}
+
+/**
+ * Computes an HMAC-SHA256 signature for OAuth state fields.
+ * Binds nonce, origin, returnPath, and expiry to protect against tampering.
+ * @internal
+ */
+export function computeOAuthStateSignature(
+  nonce: string,
+  origin: string,
+  returnPath: string | undefined,
+  exp: number,
+  secret: string
+): string {
+  const data = `${nonce}|${origin}|${returnPath ?? ''}|${exp}`;
+  return crypto.createHmac('sha256', secret).update(data).digest('base64url');
+}
+
+/**
+ * Encodes `{ n: nonce, o: resolvedOrigin, p?: path, exp: number, s?: signature }`
+ * as a URL-safe base64 string for use as the OAuth `state` parameter.
+ * @public
+ */
+export function encodeOAuthState(
+  nonce: string,
+  redirectOrigin: string,
+  returnPath?: string,
+  exp?: number,
+  secret?: string
+): string {
+  const effectiveExp = exp ?? (Date.now() + 10 * 60 * 1000);
+  const payload: OAuthState = {
+    n: nonce,
+    o: redirectOrigin,
+    exp: effectiveExp,
+  };
+  if (returnPath) payload.p = returnPath;
+  if (secret) {
+    payload.s = computeOAuthStateSignature(nonce, redirectOrigin, returnPath, effectiveExp, secret);
+  }
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
 function isOAuthState(value: unknown): value is OAuthState {
@@ -384,7 +482,14 @@ function oauthStateCookieOpts(path: string, config: AuthConfig, req: Request) {
   };
 }
 
-function verifyOAuthState(req: Request, res: Response, cookieName: string, path: string, config: AuthConfig): void {
+function verifyOAuthState(
+  req: Request,
+  res: Response,
+  cookieName: string,
+  path: string,
+  config: AuthConfig,
+  allowedReturnPaths?: (string | RegExp)[]
+): void {
   const cookieVal = (req.cookies as Record<string, string> | undefined)?.[cookieName]
     ?? (req.cookies as Record<string, string> | undefined)?.['oauth_state']
     ?? tokenService.extractTokenFromCookie(req, cookieName)
@@ -396,12 +501,57 @@ function verifyOAuthState(req: Request, res: Response, cookieName: string, path:
   res.clearCookie('oauth_state', { path: '/' });
 
   const rawState = (req.query as Record<string, unknown>)['state'];
-  const stateNonce = decodeOAuthStateNonce(typeof rawState === 'string' ? rawState : undefined);
+  const stateStr = typeof rawState === 'string' ? rawState : undefined;
+  const stateNonce = decodeOAuthStateNonce(stateStr);
 
   const a = Buffer.from(cookieVal ?? '');
   const b = Buffer.from(stateNonce ?? '');
   if (!cookieVal || !stateNonce || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     throw new AuthError('Invalid OAuth state', 'INVALID_OAUTH_STATE', 400);
+  }
+
+  // Parse structured state if present to verify expiry, signature, and return_path
+  if (stateStr) {
+    try {
+      const parsed: unknown = JSON.parse(Buffer.from(stateStr, 'base64url').toString());
+      if (isOAuthState(parsed)) {
+        // 1. Expiry verification
+        if (parsed.exp !== undefined) {
+          if (typeof parsed.exp !== 'number' || Date.now() > parsed.exp) {
+            throw new AuthError('OAuth state expired', 'INVALID_OAUTH_STATE', 400);
+          }
+        }
+
+        // 2. Cryptographic signature verification
+        if (parsed.s !== undefined || parsed.exp !== undefined || parsed.p !== undefined) {
+          if (!parsed.s || typeof parsed.exp !== 'number') {
+            throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
+          }
+          const expectedSig = computeOAuthStateSignature(
+            parsed.n,
+            parsed.o,
+            parsed.p,
+            parsed.exp,
+            config.accessTokenSecret
+          );
+          const sigBuf = Buffer.from(parsed.s);
+          const expSigBuf = Buffer.from(expectedSig);
+          if (sigBuf.length !== expSigBuf.length || !crypto.timingSafeEqual(sigBuf, expSigBuf)) {
+            throw new AuthError('Invalid OAuth state signature', 'INVALID_OAUTH_STATE', 400);
+          }
+        }
+
+        // 3. Re-validate return_path against syntax and allowlist
+        if (parsed.p !== undefined) {
+          if (!validateReturnPath(parsed.p, allowedReturnPaths)) {
+            throw new AuthError('Invalid return_path in OAuth state', 'INVALID_OAUTH_STATE', 400);
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof AuthError) throw err;
+      // non-JSON plain string legacy nonce handled above by timingSafeEqual
+    }
   }
 }
 
@@ -413,7 +563,16 @@ function verifyOAuthState(req: Request, res: Response, cookieName: string, path:
  */
 function resolveOAuthRedirect(state: string | undefined, config: AuthConfig, allowedOrigins: string[]): string {
   const fromState = decodeOAuthStateOrigin(state);
-  if (fromState && (allowedOrigins.length === 0 || allowedOrigins.includes(fromState))) {
+  if (fromState) {
+    if (allowedOrigins.length === 0) {
+      if (process.env['NODE_ENV'] === 'production') {
+        console.warn('[node-auth] Production warning: allowedOrigins is empty, refusing to redirect to arbitrary origin from OAuth state');
+        return getDefaultSiteUrl(config);
+      }
+    } else if (!allowedOrigins.includes(fromState)) {
+      return getDefaultSiteUrl(config);
+    }
+
     // Also extract the optional path field from the state
     try {
       if (state) {
@@ -590,6 +749,17 @@ export function createAuthRouter(
   const localStrategy = new LocalStrategy(userStore, passwordService);
   const rl = options.rateLimiter ? [options.rateLimiter] : [];
   const allowedOrigins = buildAllowedOrigins(config, options);
+  if (allowedOrigins.length === 0) {
+    if (process.env['NODE_ENV'] === 'production') {
+      console.warn('[node-auth] WARNING: OAuth origin allowlist (email.siteUrl or cors.origins) is empty in production. OAuth start routes will refuse requests.');
+    } else {
+      console.warn('[node-auth] Notice: OAuth origin allowlist (email.siteUrl or cors.origins) is empty. In production, an allowlist is required.');
+    }
+  }
+  const allowedReturnPaths = options.allowedReturnPaths
+    ?? options.oauth?.allowedReturnPaths
+    ?? config.allowedReturnPaths
+    ?? config.oauth?.allowedReturnPaths;
   const isResourceServer = config.resourceServer?.enabled === true;
   const eventBus = options.eventBus;
   // Built-in register handler (opt-in via `defaultRegister: true`). It persists
@@ -1597,10 +1767,29 @@ export function createAuthRouter(
   if (options.googleStrategy) {
     const googleStrategy = options.googleStrategy;
     router.get('/oauth/google', ...rl, (req: Request, res: Response) => {
+      if (allowedOrigins.length === 0 && process.env['NODE_ENV'] === 'production') {
+        console.error('[node-auth] OAuth start refused: allowedOrigins is empty in production mode.');
+        res.status(500).json({
+          error: 'OAuth is not properly configured: origin allowlist is required in production',
+          code: 'OAUTH_ORIGIN_ALLOWLIST_EMPTY',
+        });
+        return;
+      }
+      const rawReturnPath = req.query['return_path'];
+      if (rawReturnPath !== undefined) {
+        if (!validateReturnPath(rawReturnPath, allowedReturnPaths)) {
+          res.status(400).json({
+            error: 'Invalid return_path',
+            code: 'OAUTH_RETURN_PATH_INVALID',
+          });
+          return;
+        }
+      }
+      const returnPath = typeof rawReturnPath === 'string' ? rawReturnPath : undefined;
       const nonce = tokenService.generateSecureToken(16);
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
-      const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
-      const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      const exp = Date.now() + 10 * 60 * 1000;
+      const state = encodeOAuthState(nonce, resolved || '', returnPath, exp, config.accessTokenSecret);
       const url = googleStrategy.getAuthorizationUrl(state);
       const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/google/callback`);
       res.cookie('oauth_nonce_google', nonce, {
@@ -1619,7 +1808,7 @@ export function createAuthRouter(
     router.get('/oauth/google/callback', ...rl, async (req: Request, res: Response) => {
       try {
         const callbackPath = oauthCallbackPath(googleStrategy.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
-        verifyOAuthState(req, res, 'oauth_nonce_google', callbackPath, config);
+        verifyOAuthState(req, res, 'oauth_nonce_google', callbackPath, config, allowedReturnPaths);
         const { code, state } = req.query as { code: string; state?: string };
 
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
@@ -1665,10 +1854,29 @@ export function createAuthRouter(
   if (options.githubStrategy) {
     const githubStrategy = options.githubStrategy;
     router.get('/oauth/github', ...rl, (req: Request, res: Response) => {
+      if (allowedOrigins.length === 0 && process.env['NODE_ENV'] === 'production') {
+        console.error('[node-auth] OAuth start refused: allowedOrigins is empty in production mode.');
+        res.status(500).json({
+          error: 'OAuth is not properly configured: origin allowlist is required in production',
+          code: 'OAUTH_ORIGIN_ALLOWLIST_EMPTY',
+        });
+        return;
+      }
+      const rawReturnPath = req.query['return_path'];
+      if (rawReturnPath !== undefined) {
+        if (!validateReturnPath(rawReturnPath, allowedReturnPaths)) {
+          res.status(400).json({
+            error: 'Invalid return_path',
+            code: 'OAUTH_RETURN_PATH_INVALID',
+          });
+          return;
+        }
+      }
+      const returnPath = typeof rawReturnPath === 'string' ? rawReturnPath : undefined;
       const nonce = tokenService.generateSecureToken(16);
       const resolved = resolveSiteUrl(req, config, allowedOrigins);
-      const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
-      const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+      const exp = Date.now() + 10 * 60 * 1000;
+      const state = encodeOAuthState(nonce, resolved || '', returnPath, exp, config.accessTokenSecret);
       const url = githubStrategy.getAuthorizationUrl(state);
       const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/github/callback`);
       res.cookie('oauth_nonce_github', nonce, {
@@ -1687,7 +1895,7 @@ export function createAuthRouter(
     router.get('/oauth/github/callback', ...rl, async (req: Request, res: Response) => {
       try {
         const callbackPath = oauthCallbackPath(githubStrategy.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
-        verifyOAuthState(req, res, 'oauth_nonce_github', callbackPath, config);
+        verifyOAuthState(req, res, 'oauth_nonce_github', callbackPath, config, allowedReturnPaths);
         const { code, state } = req.query as { code: string; state?: string };
 
         const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);
@@ -1734,10 +1942,29 @@ export function createAuthRouter(
     for (const strategy of options.oauthStrategies) {
       const s = strategy;
       router.get(`/oauth/${s.name}`, ...rl, (req: Request, res: Response) => {
+        if (allowedOrigins.length === 0 && process.env['NODE_ENV'] === 'production') {
+          console.error('[node-auth] OAuth start refused: allowedOrigins is empty in production mode.');
+          res.status(500).json({
+            error: 'OAuth is not properly configured: origin allowlist is required in production',
+            code: 'OAUTH_ORIGIN_ALLOWLIST_EMPTY',
+          });
+          return;
+        }
+        const rawReturnPath = req.query['return_path'];
+        if (rawReturnPath !== undefined) {
+          if (!validateReturnPath(rawReturnPath, allowedReturnPaths)) {
+            res.status(400).json({
+              error: 'Invalid return_path',
+              code: 'OAUTH_RETURN_PATH_INVALID',
+            });
+            return;
+          }
+        }
+        const returnPath = typeof rawReturnPath === 'string' ? rawReturnPath : undefined;
         const nonce = tokenService.generateSecureToken(16);
         const resolved = resolveSiteUrl(req, config, allowedOrigins);
-        const returnPath = typeof req.query['return_path'] === 'string' ? req.query['return_path'] as string : undefined;
-        const state = resolved ? encodeOAuthState(nonce, resolved, returnPath) : nonce;
+        const exp = Date.now() + 10 * 60 * 1000;
+        const state = encodeOAuthState(nonce, resolved || '', returnPath, exp, config.accessTokenSecret);
         const url = s.getAuthorizationUrl(state);
         const callbackPath = oauthCallbackPath(url, `${req.baseUrl}/oauth/${s.name}/callback`);
         res.cookie(`oauth_nonce_${s.name}`, nonce, {
@@ -1757,7 +1984,7 @@ export function createAuthRouter(
         try {
           const cookieName = `oauth_nonce_${s.name}`;
           const callbackPath = oauthCallbackPath(s.getAuthorizationUrl(''), `${req.baseUrl}${req.path}`);
-          verifyOAuthState(req, res, cookieName, callbackPath, config);
+          verifyOAuthState(req, res, cookieName, callbackPath, config, allowedReturnPaths);
           const { code, state } = req.query as { code: string; state?: string };
 
           const redirectTo = resolveOAuthRedirect(state, config, allowedOrigins);

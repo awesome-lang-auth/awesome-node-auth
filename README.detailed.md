@@ -733,7 +733,24 @@ When `findOrCreateUser` throws an `AuthError` with code `'OAUTH_ACCOUNT_CONFLICT
 ```
 (or `{siteUrl}{apiPrefix}/account-conflict?...` when `ui.enabled` is false; `apiPrefix` defaults to `/auth`).
 
-Note that `return_path` is ignored on account conflict redirects to prevent path pollution. If `allowedOrigins` is empty, any origin from state passes (same as `resolveOAuthRedirect`). (Note: a separate follow-up issue tracks the 2FA redirect path `${redirectTo}/auth/2fa?tempToken=...`).
+#### OAuth Return Path Validation & State Binding (v1.10.4)
+
+To protect against open redirects and state tampering:
+1. **`return_path` validation at flow start**:
+   - `GET /auth/oauth/<provider>?return_path=...` strictly validates the query parameter:
+     - Must start with a single `/` (no protocol-relative `//evil.example` or absolute URLs).
+     - Must not contain backslashes (`\`) or control characters (`[\x00-\x1f\x7f]`).
+     - Maximum length of 512 characters.
+     - If validation fails, responds with HTTP `400 {"error":"Invalid return_path","code":"OAUTH_RETURN_PATH_INVALID"}` and **no cookie is set**.
+2. **Path restriction allowlist**:
+   - Configure `allowedReturnPaths?: (string | RegExp)[]` in `config.oauth?.allowedReturnPaths` or `options.allowedReturnPaths` (e.g. `['/oauth/done']`).
+   - If configured and `return_path` does not match, returns HTTP 400 (`OAUTH_RETURN_PATH_INVALID`) without setting a cookie.
+3. **Cryptographic state binding and expiry**:
+   - The state parameter embeds `{ n, o, p, exp, s }` where `exp` defaults to 10 minutes and `s` is an HMAC-SHA256 signature binding the nonce, origin, return path, and expiry using `config.accessTokenSecret`.
+   - On callback, the router verifies the nonce matches the `HttpOnly`, `SameSite=Lax` cookie, checks that the state has not expired (`Date.now() <= exp`), and verifies the HMAC signature. Any tampered state (e.g. altered `p`) is rejected immediately with HTTP 400 (`INVALID_OAUTH_STATE`) before invoking the provider strategy or token exchange.
+4. **Origin allowlist enforcement in production**:
+   - An origin allowlist is built from `config.email.siteUrl` and `options.cors.origins`.
+   - In production (`NODE_ENV === 'production'`), if the origin allowlist is empty, OAuth start routes refuse execution with HTTP 500 (`OAUTH_ORIGIN_ALLOWLIST_EMPTY`) and the callback refuses arbitrary origins from the state to prevent open redirects.
 
 #### OAuth State Nonce CSRF Protection
 

@@ -268,7 +268,18 @@ export interface AuthConfig {
       clientSecret: string;
       callbackUrl: string;
     };
+    /**
+     * Optional allowlist of return paths permitted in OAuth start requests (`?return_path=...`).
+     * Entries can be exact strings (e.g. `'/oauth/done'`) or Regular Expressions (e.g. `/^\/dashboard(\/.*)?$/`).
+     * When provided, any `return_path` that does not match an entry will be rejected with HTTP 400 (`OAUTH_RETURN_PATH_INVALID`).
+     */
+    allowedReturnPaths?: (string | RegExp)[];
   };
+  /**
+   * Optional shorthand allowlist of return paths permitted in OAuth start requests.
+   * Can also be set in `config.oauth.allowedReturnPaths` or `RouterOptions.allowedReturnPaths`.
+   */
+  allowedReturnPaths?: (string | RegExp)[];
   twoFactor?: {
     appName?: string;
   };

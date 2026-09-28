@@ -3,6 +3,24 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.4] — 2026-09-28
+
+### Security
+- **OAuth start return_path validation and restriction** (Issue #22):
+  - Strictly validate `req.query.return_path` on start endpoints (`/oauth/google`, `/oauth/github`, `/oauth/:name`):
+    - Must start with a single `/` (rejects protocol-relative `//` and absolute URLs).
+    - Rejects backslashes (`\`) and control characters (`[\x00-\x1f\x7f]`).
+    - Enforces maximum length of 512 characters.
+    - Invalid syntax returns HTTP 400 (`OAUTH_RETURN_PATH_INVALID`) immediately with no cookie set.
+  - Added `allowedReturnPaths?: (string | RegExp)[]` option in `AuthConfig['oauth']` and `RouterOptions` to restrict permitted redirect targets (e.g. `['/oauth/done']`).
+- **Cryptographic state binding and expiry** (Issue #22):
+  - Structured OAuth state parameter now embeds `{ n, o, p, exp, s }` where `exp` is a 10-minute expiry timestamp and `s` is an HMAC-SHA256 signature binding the nonce, origin, return path, and expiry via `config.accessTokenSecret`.
+  - Callback endpoints verify state freshness (`Date.now() <= exp`) and cryptographically verify the signature before token exchange. Tampered `p` or expired state returns HTTP 400 (`INVALID_OAUTH_STATE`) without calling provider strategy callback.
+  - Re-validate `return_path` against syntax and `allowedReturnPaths` on callback.
+- **Production origin allowlist enforcement** (Issue #22):
+  - When origin allowlist (`allowedOrigins`) is empty in production mode (`NODE_ENV === 'production'`), OAuth start endpoints refuse initiation with HTTP 500 (`OAUTH_ORIGIN_ALLOWLIST_EMPTY`) and no cookie is set.
+  - Callbacks refuse to trust arbitrary origins from state when allowlist is empty in production.
+
 ---
 
 ## [1.10.3] — 2026-09-28
