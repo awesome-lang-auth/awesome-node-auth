@@ -75,7 +75,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **Stateful sessions** *(v1.5)* | `ISessionStore` + real-time revocation (`checkOn: allcalls\|refresh\|none`) · works behind your own L1/L2 cache layers |
 | **Dynamic email templates** *(v1.6)* | `ITemplateStore` — per-language mail templates + UI i18n with safe hardcoded fallback · built-in `MemoryTemplateStore` |
 | **CSRF protection** | Double-submit cookie pattern · `__Host-` prefix hardening against cookie-tossing |
-| **Account management** | Registration · change email/password · account deletion · email verification (none/lazy/strict) |
+| **Account management** | Registration · change email/password · account deletion (`onBeforeDeleteUser` hook) · email verification (none/lazy/strict + server API/admin trigger) |
 | **Account linking** | Link multiple OAuth providers · conflict resolution via `IPendingLinkStore` |
 | **RBAC** | `IRolesPermissionsStore` with tenant awareness |
 | **Multi-tenancy** | `ITenantStore` for isolated tenant apps |

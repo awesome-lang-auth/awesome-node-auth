@@ -2276,6 +2276,49 @@ app.post('/register', async (req, res) => {
 });
 ```
 
+### Triggering Verification Emails from Server Code / Admin
+
+In addition to user-initiated email verification (`POST /auth/send-verification-email`), applications can trigger verification emails directly from server code (e.g. background jobs, automated onboarding, re-engagement jobs) or via the admin API.
+
+#### From Server Code (`AuthConfigurator.sendVerificationEmail`)
+
+```typescript
+const result = await auth.sendVerificationEmail(userIdOrEmail, {
+  emailLang: 'it', // optional language code
+});
+
+if (result.sent) {
+  console.log('Verification email dispatched');
+} else if (result.reason === 'already_verified') {
+  console.log('User is already verified; no email sent');
+} else if (result.reason === 'not_found') {
+  console.log('User not found');
+}
+```
+
+- Re-uses the configured 24-hour token expiry, store update, and mailer/`sendVerificationEmail` callback.
+- Accepts either a user ID or an email address.
+- Returns `{ sent: true }` or `{ sent: false, reason: 'already_verified' | 'not_found' }`.
+
+#### From Admin API (`POST /admin/api/users/:id/send-verification-email`)
+
+Administrators can resend verification emails for a user:
+
+```http
+POST /admin/api/users/:id/send-verification-email
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "emailLang": "it"
+}
+```
+
+- **200 OK**: `{ "success": true }`
+- **400 Bad Request**: `{ "error": "Email is already verified" }`
+- **404 Not Found**: `{ "error": "User not found" }`
+- **500 Server Error**: `{ "error": "UserStore does not implement email verification" }` or `{ "error": "AuthConfig is required for email verification" }`
+
 ## Change Password
 
 `POST /auth/change-password` — **authenticated** — lets users update their password without going through the forgot-password flow.
@@ -2392,9 +2435,45 @@ const res = await fetch('/auth/link-verify', {
 // → tokens set as cookies (or in body for X-Auth-Strategy: bearer); user is now logged in
 ```
 
-Both endpoints are only mounted when `linkedAccountsStore` is provided in `RouterOptions`. `link-request` also requires `email.sendVerificationEmail` (or `email.mailer`) to be configured so it can send the email.
-
 > **Tip:** Pass `loginAfterLinking: true` in the `/auth/link-verify` body to receive a full session (tokens set as cookies, or in the JSON body for `X-Auth-Strategy: bearer`) immediately after the link is confirmed — no separate login step needed. This is especially useful for the unauthenticated conflict-linking flow driven by `IPendingLinkStore`.
+
+## Account Deletion & Cleanup Hook (`onBeforeDeleteUser`)
+
+When a user deletes their account (`DELETE /auth/account`) or an administrator deletes a user via the admin API (`DELETE /admin/api/users/:id`), consumers often need to clean up external records (billing subscriptions, licenses, device installations, storage files) or anonymize related data before the user is permanently removed.
+
+The library provides the `onBeforeDeleteUser` hook across `RouterOptions`, `AdminOptions`, and `AuthConfiguratorOptions`:
+
+```typescript
+import { AuthConfigurator, DeleteUserContext } from '@awesome-lang-auth/node';
+
+const auth = new AuthConfigurator(config, userStore, {
+  onBeforeDeleteUser: async (userId: string, ctx: DeleteUserContext) => {
+    // ctx.source indicates whether deletion was triggered by the user ('self') or an admin ('admin')
+    // ctx.req contains the triggering Express Request
+    console.log(`Cleaning up external resources for user ${userId} (source: ${ctx.source})`);
+
+    // Clean up external billing / subscriptions
+    await billingGateway.cancelSubscriptionsForCustomer(userId);
+
+    // Anonymize orders or revoke licenses
+    await licenseStore.revokeLicensesForUser(userId);
+
+    // Log audit trail
+    await auditLog.record({ event: 'user.pre_delete', userId, source: ctx.source });
+  },
+});
+```
+
+### Key Guarantees
+
+1. **Awaited before deletion**: The hook is invoked and awaited **before** any internal state changes:
+   - For `DELETE /auth/account`: before sessions are revoked in `sessionStore`, before RBAC roles or tenant associations are cleared, before user metadata is cleared, and before `userStore.deleteUser` is called.
+   - For `DELETE /admin/api/users/:id`: before `userStore.deleteUser` is called.
+2. **Atomic failure handling**: If the hook throws an error:
+   - The deletion operation aborts immediately.
+   - HTTP `500` is returned to the caller.
+   - The user record, sessions, tokens, roles, and metadata remain completely preserved.
+3. **Cookie clearing**: On self-service deletion (`DELETE /auth/account`), access and refresh token cookies are cleared upon successful completion.
 
 ## TOTP Two-Factor Authentication — Full UI Integration Guide
 
@@ -3004,6 +3083,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |
 | `tenantStore` | `ITenantStore` | When provided, `DELETE /auth/account` also removes the user from all their tenants |
+| `onBeforeDeleteUser` | `BeforeDeleteUserHook` | Optional async hook called before account deletion (`DELETE /auth/account`, `DELETE /admin/api/users/:id`). Receives `(userId, { req, source: 'self' \| 'admin' })`. If the hook throws, deletion is aborted and 500 is returned. |
 | `templateStore` | `ITemplateStore` | Enables dynamic email templates and UI internationalization (v1.6.0) |
 | `swagger` | `boolean \| 'auto'` | Enable Swagger UI + OpenAPI spec. `'auto'` (default) — enabled when `NODE_ENV !== 'production'` |
 | `swaggerBasePath` | `string` | Base path for accurate OpenAPI path entries; must match the mount path (default: `'/auth'`) |
@@ -3637,6 +3717,10 @@ app.use('/tools', createToolsRouter(tools, {
 ### Inbound Webhooks — dynamic vm sandbox
 
 The **governance-driven** approach lets admins configure scripts and permitted actions directly from the Admin UI — no redeploy required.
+
+> [!WARNING]
+> **Security notice on `node:vm`:**
+> Node.js's built-in `node:vm` module is **not** a security isolation sandbox. Scripts executed in this context run within the host Node.js process and can potentially escape the sandbox (e.g. through constructor traversal). Dynamic inbound webhook scripts (`jsScript`) must **only** be authored by trusted system operators/administrators. Never expose script editing to untrusted users or evaluate arbitrary unverified script definitions from external sources.
 
 **Architecture:**
 

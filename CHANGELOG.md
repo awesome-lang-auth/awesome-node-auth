@@ -3,6 +3,31 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.5] — 2026-09-28
+
+### Added
+- **Account deletion hook (`onBeforeDeleteUser`)** (Issue #20):
+  - Added `onBeforeDeleteUser?: (userId: string, ctx: { req: Request; source: 'self' | 'admin' }) => Promise<void> | void` to `RouterOptions`, `AdminOptions`, and `AuthConfiguratorOptions`.
+  - Awaited before sessions are revoked and before the user record is deleted in `DELETE /auth/account` (`source: 'self'`) and in admin `DELETE /admin/api/users/:id` (`source: 'admin'`).
+  - If the hook throws, deletion is aborted immediately with HTTP 500, preserving user, sessions, RBAC, and metadata intact.
+- **Server-side and admin email verification triggers** (Issue #24):
+  - Added `AuthConfigurator.sendVerificationEmail(userIdOrEmail, opts?: { emailLang?: string; siteUrl?: string; routerOptions?: RouterOptions }): Promise<{ sent: boolean; reason?: 'already_verified' | 'not_found' }>`. Re-uses the configured 24h token expiry, store update, and mailer callback.
+  - Added admin endpoint `POST /admin/api/users/:id/send-verification-email` (with alias `/users/:id/send-verification-email`), returning 200 on success, 400 if already verified, 404 if not found, and 500 if unconfigured.
+  - Exported `performSendVerificationEmail`, `DeleteUserContext`, `BeforeDeleteUserHook`, `SendVerificationEmailOptions`, `SendVerificationEmailResult`.
+
+### Fixed
+- **Input robustness on body-less POST and PATCH requests** (Issue #21):
+  - Replaced direct `req.body` destructuring across all auth router, admin router, and tools router endpoints with safe `(req.body ?? {})` fallback.
+  - Prevented 500 `TypeError` crashes when authenticated POST/PATCH requests are submitted without a body or without `Content-Type: application/json`.
+  - `POST /auth/send-verification-email`, `PATCH /auth/profile`, and `POST /auth/logout` without a body now succeed with HTTP 200.
+  - Requests missing required fields across all other endpoints return HTTP 400 with a descriptive error message instead of crashing with HTTP 500.
+
+### Documentation
+- **Security clarification on `node:vm` sandbox boundary** (Issue #10):
+  - Clarified in `README.detailed.md` that Node.js's built-in `node:vm` is not a secure isolation sandbox, warning that dynamic inbound webhook scripts (`jsScript`) must only be authored and managed by trusted system administrators.
+
+---
+
 ## [1.10.4] — 2026-09-28
 
 ### Security

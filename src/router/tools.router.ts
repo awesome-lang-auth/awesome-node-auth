@@ -140,7 +140,7 @@ export function createToolsRouter(tools: AuthTools, options: ToolsRouterOptions 
   if (telemetry) {
     router.post('/track/:eventName', ...protect, async (req: Request, res: Response) => {
       const eventName = req.params['eventName'] as string;
-      const { data, userId, tenantId, sessionId, correlationId } = req.body as Record<string, unknown>;
+      const { data, userId, tenantId, sessionId, correlationId } = (req.body ?? {}) as Record<string, unknown>;
       const ip = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ?? req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
       const reqUser = (req as Request & { user?: { id?: string; sub?: string } }).user;
@@ -165,7 +165,7 @@ export function createToolsRouter(tools: AuthTools, options: ToolsRouterOptions 
   if (notify) {
     router.post('/notify/:target', ...protect, (req: Request, res: Response) => {
       const target = req.params['target'] as string;
-      const { data, type, tenantId, userId, metadata } = req.body as Record<string, unknown>;
+      const { data, type, tenantId, userId, metadata } = (req.body ?? {}) as Record<string, unknown>;
 
       tools.notify(target, data, {
         type: type as string | undefined,

@@ -7,7 +7,15 @@ import { LocalStrategy } from './strategies/local/local.strategy';
 import { GoogleStrategy } from './strategies/oauth/google.strategy';
 import { GithubStrategy } from './strategies/oauth/github.strategy';
 import { createAuthMiddleware } from './middleware/auth.middleware';
-import { createAuthRouter, resolveApiPrefix, RouterOptions } from './router/auth.router';
+import {
+  createAuthRouter,
+  resolveApiPrefix,
+  RouterOptions,
+  BeforeDeleteUserHook,
+  SendVerificationEmailOptions,
+  SendVerificationEmailResult,
+  performSendVerificationEmail,
+} from './router/auth.router';
 import { ISessionStore } from './interfaces/session-store.interface';
 import { createAdminRouter, AdminOptions, AdminAccessPolicy } from './router/admin.router';
 import { publishSafely } from './router/router-events';
@@ -18,6 +26,10 @@ import { BaseUser } from './models/user.model';
 
 export interface AuthConfiguratorOptions {
   eventBus?: AuthEventBus;
+  /**
+   * Optional hook invoked before a user account is deleted (self or admin).
+   */
+  onBeforeDeleteUser?: BeforeDeleteUserHook;
 }
 
 type BuildAllRoutersAdminOptions = Omit<AdminOptions, 'jwtSecret' | 'apiPrefix' | 'eventBus'> & {
@@ -67,6 +79,7 @@ export class AuthConfigurator {
     return createAuthRouter(this.userStore, this.config, {
       ...options,
       eventBus: options?.eventBus ?? this.options.eventBus,
+      onBeforeDeleteUser: options?.onBeforeDeleteUser ?? this.options.onBeforeDeleteUser,
     });
   }
 
@@ -82,10 +95,33 @@ export class AuthConfigurator {
         apiPrefix: normalizedPrefix,
         jwtSecret: options.admin.jwtSecret ?? this.config.accessTokenSecret,
         eventBus: options.admin.eventBus ?? this.options.eventBus,
+        onBeforeDeleteUser: options.admin.onBeforeDeleteUser ?? options.auth?.onBeforeDeleteUser ?? this.options.onBeforeDeleteUser,
+        authConfig: options.admin.authConfig ?? this.config,
+        routerOptions: options.admin.routerOptions ?? options.auth,
       }),
     );
     composite.use(normalizedPrefix, this.router(authOptions));
     return composite;
+  }
+
+  /**
+   * Sends a verification email for a given user (by user ID or email address).
+   * Re-uses the configured token TTL (24h), expiry, store update, and mailer/sendVerificationEmail callback.
+   *
+   * @param userIdOrEmail User ID or email address
+   * @param opts Optional language, siteUrl, and router options
+   */
+  async sendVerificationEmail(
+    userIdOrEmail: string,
+    opts?: SendVerificationEmailOptions,
+  ): Promise<SendVerificationEmailResult> {
+    return performSendVerificationEmail(
+      this.userStore,
+      this.config,
+      userIdOrEmail,
+      opts,
+      this._tokenService,
+    );
   }
 
   async promoteToAdmin(
