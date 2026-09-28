@@ -2479,9 +2479,27 @@ const auth = new AuthConfigurator(config, userStore, {
    - For `DELETE /admin/api/users/:id`: before `userStore.deleteUser` is called.
 2. **Atomic failure handling**: If the hook throws an error:
    - The deletion operation aborts immediately.
-   - HTTP `500` is returned to the caller.
+   - If the error is an `AuthError`, its HTTP status code (e.g. `409 Conflict`) and error message are propagated to the caller across both `DELETE /auth/account` and `DELETE /admin/api/users/:id`. If a generic Error is thrown, HTTP `500` is returned.
    - The user record, sessions, tokens, roles, and metadata remain completely preserved.
-3. **Cookie clearing**: On self-service deletion (`DELETE /auth/account`), access and refresh token cookies are cleared upon successful completion.
+3. **User existence validation**: On admin deletion (`DELETE /admin/api/users/:id`), the user record is verified first. If the user ID does not exist, HTTP `404` (`{ error: 'User not found' }`) is returned immediately and the `onBeforeDeleteUser` hook is never invoked.
+4. **Cookie clearing**: On self-service deletion (`DELETE /auth/account`), access and refresh token cookies are cleared upon successful completion. You can also manually invoke `clearAuthCookies(res, config)` or `tokenService.clearTokenCookies(res, config)` at any time to clear auth cookies.
+
+## Cookie Management (`clearAuthCookies` & `TokenService.clearTokenCookies`)
+
+Consumers wishing to manually clear authentication cookies (access token, refresh token, CSRF cookie) from an Express `Response` can use `clearAuthCookies` or `TokenService.prototype.clearTokenCookies`:
+
+```typescript
+import { clearAuthCookies, TokenService } from '@awesome-lang-auth/node';
+
+// Functional helper:
+clearAuthCookies(res, authConfig);
+
+// Or via TokenService instance:
+const tokenService = new TokenService();
+tokenService.clearTokenCookies(res, authConfig);
+```
+
+Both methods respect `config.cookieOptions` (`secure`, `sameSite`, `path`, `domain`) and clear both standard and prefixed (`__Host-`, `__Secure-`) cookie names.
 
 ## TOTP Two-Factor Authentication — Full UI Integration Guide
 
@@ -3091,7 +3109,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |
 | `tenantStore` | `ITenantStore` | When provided, `DELETE /auth/account` also removes the user from all their tenants |
-| `onBeforeDeleteUser` | `BeforeDeleteUserHook` | Optional async hook called before account deletion (`DELETE /auth/account`, `DELETE /admin/api/users/:id`). Receives `(userId, { req, source: 'self' \| 'admin' })`. If the hook throws, deletion is aborted and 500 is returned. |
+| `onBeforeDeleteUser` | `BeforeDeleteUserHook` | Optional async hook called before account deletion (`DELETE /auth/account`, `DELETE /admin/api/users/:id`). Receives `(userId, { req, source: 'self' \| 'admin' })`. If the hook throws an `AuthError`, its `statusCode` (e.g. 409) is returned; other errors return 500. Deletion is aborted in either case. |
 | `templateStore` | `ITemplateStore` | Enables dynamic email templates and UI internationalization (v1.6.0) |
 | `swagger` | `boolean \| 'auto'` | Enable Swagger UI + OpenAPI spec. `'auto'` (default) — enabled when `NODE_ENV !== 'production'` |
 | `swaggerBasePath` | `string` | Base path for accurate OpenAPI path entries; must match the mount path (default: `'/auth'`) |
