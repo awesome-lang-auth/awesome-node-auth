@@ -62,8 +62,8 @@ export type { IdProviderConfig, ResourceServerConfig } from './models/auth-confi
 export { createAuthMiddleware } from './middleware/auth.middleware';
 export { createApiKeyMiddleware } from './middleware/api-key.middleware';
 export { createJwksAuthMiddleware } from './middleware/jwks-auth.middleware';
-export { createAuthRouter, buildUiLink, validateReturnPath, encodeOAuthState, computeOAuthStateSignature } from './router/auth.router';
-export type { RouterOptions, OAuthState } from './router/auth.router';
+export { createAuthRouter, buildUiLink, validateReturnPath, encodeOAuthState, computeOAuthStateSignature, performSendVerificationEmail } from './router/auth.router';
+export type { RouterOptions, OAuthState, DeleteUserContext, BeforeDeleteUserHook, SendVerificationEmailOptions, SendVerificationEmailResult } from './router/auth.router';
 export { createAdminRouter } from './router/admin.router';
 export type { AdminOptions, AdminAccessPolicy, AuthorizedAdminUser } from './router/admin.router';
 export { buildUiRouter } from './router/ui.router';

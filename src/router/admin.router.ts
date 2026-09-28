@@ -19,6 +19,8 @@ import { TOKEN_PURPOSE_CLAIM, TEMP_TOKEN_PURPOSE, ADMIN_TOKEN_PURPOSE } from '..
 import { ActionRegistry } from '../tools/webhook-action';
 import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
+import { AuthConfig } from '../models/auth-config.model';
+import { BeforeDeleteUserHook, RouterOptions, performSendVerificationEmail } from './auth.router';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
 import { publishRequestEvent as publishAdminEvent } from './router-events';
@@ -231,6 +233,23 @@ export interface AdminOptions {
    * Optional rate limiter middleware applied to sensitive admin mutations.
    */
   rateLimiter?: RequestHandler;
+
+  /**
+   * Optional hook invoked before a user account is deleted by an admin (`DELETE /admin/api/users/:id`).
+   * Awaited before the user record is deleted.
+   * If the hook throws, deletion is aborted and 500 is returned.
+   */
+  onBeforeDeleteUser?: BeforeDeleteUserHook;
+
+  /**
+   * Optional AuthConfig reference, used e.g. for sending verification emails.
+   */
+  authConfig?: AuthConfig;
+
+  /**
+   * Optional RouterOptions reference, used e.g. for custom mailer / router options.
+   */
+  routerOptions?: RouterOptions;
 }
 
 type AdminWritableUserStore = IUserStore & {
@@ -962,16 +981,64 @@ export function createAdminRouter(
   router.delete('/api/users/:id', guard, async (req: Request, res: Response) => {
     try {
       const store = userStore as unknown as Record<string, unknown>;
-      if (typeof store['deleteUser'] === 'function') {
-        await (store['deleteUser'] as (id: string) => Promise<void>)(req.params['id'] as string);
-        res.json({ success: true });
-      } else {
+      if (typeof store['deleteUser'] !== 'function') {
         res.status(501).json({ error: 'IUserStore.deleteUser is not implemented' });
+        return;
       }
+      const userId = req.params['id'] as string;
+      if (options.onBeforeDeleteUser) {
+        await options.onBeforeDeleteUser(userId, { req, source: 'admin' });
+      }
+      await (store['deleteUser'] as (id: string) => Promise<void>)(userId);
+      res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
   });
+
+  // POST /admin/api/users/:id/send-verification-email — send verification email for a user
+  const sendVerificationEmailHandler = async (req: Request, res: Response) => {
+    try {
+      if (!options.authConfig) {
+        res.status(500).json({ error: 'AuthConfig is required for email verification' });
+        return;
+      }
+      if (!userStore.updateEmailVerificationToken || !userStore.updateEmailVerified) {
+        res.status(500).json({ error: 'UserStore does not implement email verification' });
+        return;
+      }
+      const userId = req.params['id'] as string;
+      const { emailLang } = (req.body ?? {}) as { emailLang?: string };
+      const siteUrl = options.authConfig.email?.siteUrl
+        ? (Array.isArray(options.authConfig.email.siteUrl) ? options.authConfig.email.siteUrl[0] : options.authConfig.email.siteUrl)
+        : '';
+      const result = await performSendVerificationEmail(
+        userStore,
+        options.authConfig,
+        userId,
+        {
+          emailLang,
+          siteUrl,
+          routerOptions: options.routerOptions,
+        },
+      );
+      if (!result.sent) {
+        if (result.reason === 'not_found') {
+          res.status(404).json({ error: 'User not found' });
+          return;
+        }
+        if (result.reason === 'already_verified') {
+          res.status(400).json({ error: 'Email is already verified' });
+          return;
+        }
+      }
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+  router.post('/api/users/:id/send-verification-email', ...rateLimiter, guard, sendVerificationEmailHandler);
+  router.post('/users/:id/send-verification-email', ...rateLimiter, guard, sendVerificationEmailHandler);
 
   // ---- User Metadata --------------------------------------------------------
 
@@ -1025,7 +1092,7 @@ export function createAdminRouter(
   router.put('/api/users/:id/metadata', guard, async (req: Request, res: Response) => {
     if (!options.userMetadataStore) { res.status(404).json({ error: 'User metadata store not configured' }); return; }
     try {
-      const metadata = req.body as Record<string, unknown>;
+      const metadata = (req.body ?? {}) as Record<string, unknown>;
       await options.userMetadataStore.updateMetadata(req.params['id'] as string, metadata);
       res.json({ success: true });
     } catch {
@@ -1177,7 +1244,7 @@ export function createAdminRouter(
   router.put('/api/settings', guard, async (req: Request, res: Response) => {
     if (!options.settingsStore) { res.status(404).json({ error: 'Settings store not configured' }); return; }
     try {
-      const updates = req.body as Record<string, unknown>;
+      const updates = (req.body ?? {}) as Record<string, unknown>;
       await options.settingsStore.updateSettings(updates);
       res.json({ success: true });
     } catch {
@@ -1189,7 +1256,7 @@ export function createAdminRouter(
   router.patch('/api/settings/ui', guard, async (req: Request, res: Response) => {
     if (!options.settingsStore) { res.status(404).json({ error: 'Settings store not configured' }); return; }
     try {
-      const uiPatch = req.body as Record<string, unknown>;
+      const uiPatch = (req.body ?? {}) as Record<string, unknown>;
       // Read current settings, merge new UI fields, write back
       const current = await options.settingsStore.getSettings();
       const mergedUi = { ...(current.ui || {}), ...uiPatch };
@@ -1632,7 +1699,7 @@ export function createAdminRouter(
         res.status(501).json({ error: 'IWebhookStore.update is not implemented' });
         return;
       }
-      await options.webhookStore.update(req.params['id'] as string, req.body as Record<string, unknown>);
+      await options.webhookStore.update(req.params['id'] as string, (req.body ?? {}) as Record<string, unknown>);
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });

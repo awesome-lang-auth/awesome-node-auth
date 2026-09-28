@@ -32,7 +32,31 @@ import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
 import { publishRequestEvent as publishRouterEvent, eventEmail, oauthConflictEventData } from './router-events';
 
+export interface DeleteUserContext {
+  req: Request;
+  source: 'self' | 'admin';
+}
+
+export type BeforeDeleteUserHook = (userId: string, ctx: DeleteUserContext) => Promise<void> | void;
+
+export interface SendVerificationEmailOptions {
+  emailLang?: string;
+  siteUrl?: string;
+  routerOptions?: RouterOptions;
+}
+
+export interface SendVerificationEmailResult {
+  sent: boolean;
+  reason?: 'already_verified' | 'not_found';
+}
+
 export interface RouterOptions {
+  /**
+   * Optional hook invoked before a user account is deleted by the user (`DELETE /account`).
+   * Awaited before sessions are revoked and before the user record is deleted.
+   * If the hook throws, deletion is aborted and 500 is returned.
+   */
+  onBeforeDeleteUser?: BeforeDeleteUserHook;
   googleStrategy?: GoogleStrategy;
   githubStrategy?: GithubStrategy;
   /**
@@ -320,6 +344,53 @@ export function buildUiLink(siteUrl: string, path: string, config: AuthConfig, o
   }
   const result = `${siteUrl}${cleanPrefix}/${cleanPath}`;
   return result;
+}
+
+/**
+ * Core implementation for sending an email verification message.
+ * Shared by the user endpoint (`POST /auth/send-verification-email`),
+ * the admin endpoint (`POST /admin/api/users/:id/send-verification-email`),
+ * and the configurator helper (`AuthConfigurator.sendVerificationEmail`).
+ * @public
+ */
+export async function performSendVerificationEmail(
+  userStore: IUserStore,
+  config: AuthConfig,
+  userIdOrEmail: string,
+  opts?: SendVerificationEmailOptions,
+  tokenServiceInstance: TokenService = tokenService,
+): Promise<SendVerificationEmailResult> {
+  if (!userStore.updateEmailVerificationToken || !userStore.updateEmailVerified) {
+    throw new Error('UserStore does not implement email verification');
+  }
+
+  let user: BaseUser | null = await userStore.findById(userIdOrEmail);
+  if (!user) {
+    user = await userStore.findByEmail(userIdOrEmail);
+  }
+  if (!user) {
+    return { sent: false, reason: 'not_found' };
+  }
+  if (user.isEmailVerified) {
+    return { sent: false, reason: 'already_verified' };
+  }
+
+  const token = tokenServiceInstance.generateSecureToken();
+  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  await userStore.updateEmailVerificationToken(user.id, token, expiry);
+
+  const baseSiteUrl = opts?.siteUrl ?? getDefaultSiteUrl(config);
+  const routerOpts = opts?.routerOptions ?? {};
+  const link = buildUiLink(baseSiteUrl, `/verify-email?token=${token}`, config, routerOpts);
+
+  if (config.email?.sendVerificationEmail) {
+    await config.email.sendVerificationEmail(user.email, token, link, opts?.emailLang);
+  } else if (config.email?.mailer) {
+    const mailer = new MailerService(config.email.mailer, config.templateStore);
+    await mailer.sendVerificationEmail(user.email, token, link, opts?.emailLang);
+  }
+
+  return { sent: true };
 }
 
 /**
@@ -877,7 +948,11 @@ export function createAuthRouter(
   // POST /login
   if (!isResourceServer) router.post('/login', ...rl, async (req: Request, res: Response) => {
     try {
-      const { email, password } = req.body as { email: string; password: string };
+      const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
+      if (!email || !password) {
+        res.status(400).json({ error: 'Email and password are required' });
+        return;
+      }
       const user = await localStrategy.authenticate({ email, password }, config);
 
       // Determine whether a 2FA challenge is needed.
@@ -920,7 +995,7 @@ export function createAuthRouter(
     } catch (err) {
       if (err instanceof AuthError && err.statusCode === 401) {
         publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_FAILED, req, {
-          data: { method: 'local', email: eventEmail((req.body as { email?: unknown } | undefined)?.email) },
+          data: { method: 'local', email: eventEmail(((req.body ?? {}) as { email?: unknown }).email) },
         });
       }
       handleError(res, err);
@@ -953,7 +1028,7 @@ export function createAuthRouter(
     }
     // A bearer client may send its refresh token in the body, as for /refresh.
     // It ends the session only while it is the user's current refresh token.
-    const bodyRefreshToken = (req.body as { refreshToken?: unknown } | undefined)?.refreshToken;
+    const bodyRefreshToken = ((req.body ?? {}) as { refreshToken?: unknown }).refreshToken;
     if (typeof bodyRefreshToken === 'string' && bodyRefreshToken) {
       try {
         const payload = tokenService.verifyRefreshToken(bodyRefreshToken, config);
@@ -1001,7 +1076,7 @@ export function createAuthRouter(
   if (!isResourceServer) router.post('/refresh', ...rl, async (req: Request, res: Response) => {
     try {
       // Accept refresh token from request body (bearer flow) or from cookie
-      const bodyToken = (req.body as { refreshToken?: string } | undefined)?.refreshToken;
+      const bodyToken = ((req.body ?? {}) as { refreshToken?: string }).refreshToken;
       const refreshToken = bodyToken ?? tokenService.extractTokenFromCookie(req, 'refreshToken');
       if (!refreshToken) {
         res.status(401).json({ error: 'No refresh token provided' });
@@ -1090,7 +1165,7 @@ export function createAuthRouter(
         res.status(501).json({ error: 'UserStore does not implement updateProfile' });
         return;
       }
-      const { firstName, lastName } = req.body as { firstName?: string | null; lastName?: string | null };
+      const { firstName, lastName } = (req.body ?? {}) as { firstName?: string | null; lastName?: string | null };
       await userStore.updateProfile(req.user!.sub, { firstName, lastName });
       res.json({ success: true });
     } catch (err) {
@@ -1105,7 +1180,11 @@ export function createAuthRouter(
         res.status(501).json({ error: 'UserStore does not implement updatePhoneNumber' });
         return;
       }
-      const { phoneNumber } = req.body as { phoneNumber: string | null };
+      const { phoneNumber } = (req.body ?? {}) as { phoneNumber?: string | null };
+      if (phoneNumber === undefined) {
+        res.status(400).json({ error: 'phoneNumber is required' });
+        return;
+      }
       await userStore.updatePhoneNumber(req.user!.sub, phoneNumber);
       res.json({ success: true });
     } catch (err) {
@@ -1117,7 +1196,7 @@ export function createAuthRouter(
   if (registerHandler && !isResourceServer) {
     router.post('/register', ...rl, async (req: Request, res: Response) => {
       try {
-        const data = req.body as Record<string, unknown>;
+        const data = (req.body ?? {}) as Record<string, unknown>;
         const user = await registerHandler(data, config, options);
         if (config.email?.sendWelcome) {
           // The welcome callback gets the request data without the plaintext password.
@@ -1185,7 +1264,11 @@ export function createAuthRouter(
   // POST /forgot-password
   if (!isResourceServer) router.post('/forgot-password', ...rl, async (req: Request, res: Response) => {
     try {
-      const { email, emailLang } = req.body as { email: string; emailLang?: string };
+      const { email, emailLang } = (req.body ?? {}) as { email?: string; emailLang?: string };
+      if (!email || typeof email !== 'string') {
+        res.status(400).json({ error: 'Email is required' });
+        return;
+      }
       const user = await userStore.findByEmail(email);
       if (user) {
         const token = tokenService.generateSecureToken();
@@ -1210,7 +1293,11 @@ export function createAuthRouter(
   // POST /reset-password
   if (!isResourceServer) router.post('/reset-password', ...rl, async (req: Request, res: Response) => {
     try {
-      const { token, password } = req.body as { token: string; password: string };
+      const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
+      if (!token || !password) {
+        res.status(400).json({ error: 'Token and password are required' });
+        return;
+      }
       if (!userStore.findByResetToken) {
         res.status(500).json({ error: 'UserStore does not implement findByResetToken' });
         return;
@@ -1251,7 +1338,11 @@ export function createAuthRouter(
   // POST /2fa/verify-setup
   router.post('/2fa/verify-setup', ...rl, authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { token, secret } = req.body as { token: string; secret: string };
+      const { token, secret } = (req.body ?? {}) as { token?: string; secret?: string };
+      if (!token || !secret) {
+        res.status(400).json({ error: 'Token and secret are required' });
+        return;
+      }
       const valid = await totpStrategy.verify(token, secret);
       if (!valid) {
         res.status(400).json({ error: 'Invalid TOTP code' });
@@ -1270,7 +1361,11 @@ export function createAuthRouter(
   // POST /2fa/verify - after login with 2FA
   router.post('/2fa/verify', ...rl, async (req: Request, res: Response) => {
     try {
-      const { tempToken, totpCode } = req.body as { tempToken: string; totpCode: string };
+      const { tempToken, totpCode } = (req.body ?? {}) as { tempToken?: string; totpCode?: string };
+      if (!tempToken || !totpCode) {
+        res.status(400).json({ error: 'Temp token and TOTP code are required' });
+        return;
+      }
       const payload = tokenService.verifyTempToken(tempToken, config);
       const user = await userStore.findById(payload.sub);
       if (!user || !user.totpSecret) {
@@ -1324,24 +1419,29 @@ export function createAuthRouter(
   // POST /change-password (authenticated)
   router.post('/change-password', ...rl, authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { currentPassword, newPassword } = req.body as {
-        currentPassword: string;
-        newPassword: string;
+      const { currentPassword, newPassword } = (req.body ?? {}) as {
+        currentPassword?: string;
+        newPassword?: string;
       };
       const user = await userStore.findById(req.user!.sub);
       if (!user) {
         res.status(404).json({ error: 'User not found' });
         return;
       }
+      if (!newPassword) {
+        res.status(400).json({ error: 'New password is required' });
+        return;
+      }
       if (user.password) {
+        if (!currentPassword) {
+          res.status(401).json({ error: 'Current password is incorrect' });
+          return;
+        }
         const valid = await passwordService.compare(currentPassword, user.password);
         if (!valid) {
           res.status(401).json({ error: 'Current password is incorrect' });
           return;
         }
-      } else if (!currentPassword && !newPassword) {
-        res.status(400).json({ error: 'New password is required' });
-        return;
       }
       const hashed = await passwordService.hash(newPassword, config.bcryptSaltRounds);
       await userStore.updatePassword(user.id, hashed);
@@ -1361,26 +1461,28 @@ export function createAuthRouter(
         res.status(500).json({ error: 'UserStore does not implement email verification' });
         return;
       }
-      const { emailLang } = req.body as { emailLang?: string };
-      const user = await userStore.findById(req.user!.sub);
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
-        return;
-      }
-      if (user.isEmailVerified) {
-        res.status(400).json({ error: 'Email is already verified' });
-        return;
-      }
-      const token = tokenService.generateSecureToken();
-      const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-      await userStore.updateEmailVerificationToken(user.id, token, expiry);
+      const { emailLang } = (req.body ?? {}) as { emailLang?: string };
       const siteUrl = resolveSiteUrl(req, config, allowedOrigins);
-      const link = buildUiLink(siteUrl, `/verify-email?token=${token}`, config, options);
-      if (config.email?.sendVerificationEmail) {
-        await config.email.sendVerificationEmail(user.email, token, link, emailLang);
-      } else if (config.email?.mailer) {
-        const mailer = new MailerService(config.email.mailer, config.templateStore);
-        await mailer.sendVerificationEmail(user.email, token, link, emailLang);
+      const result = await performSendVerificationEmail(
+        userStore,
+        config,
+        req.user!.sub,
+        {
+          emailLang,
+          siteUrl,
+          routerOptions: options,
+        },
+        tokenService,
+      );
+      if (!result.sent) {
+        if (result.reason === 'not_found') {
+          res.status(404).json({ error: 'User not found' });
+          return;
+        }
+        if (result.reason === 'already_verified') {
+          res.status(400).json({ error: 'Email is already verified' });
+          return;
+        }
       }
       res.json({ success: true });
     } catch (err) {
@@ -1427,7 +1529,11 @@ export function createAuthRouter(
         res.status(500).json({ error: 'UserStore does not implement change-email' });
         return;
       }
-      const { newEmail, emailLang } = req.body as { newEmail: string; emailLang?: string };
+      const { newEmail, emailLang } = (req.body ?? {}) as { newEmail?: string; emailLang?: string };
+      if (!newEmail || typeof newEmail !== 'string') {
+        res.status(400).json({ error: 'newEmail is required' });
+        return;
+      }
       const existing = await userStore.findByEmail(newEmail);
       if (existing) {
         res.status(409).json({ error: 'Email address is already in use' });
@@ -1469,7 +1575,11 @@ export function createAuthRouter(
         res.status(500).json({ error: 'UserStore does not implement change-email' });
         return;
       }
-      const { token } = req.body as { token: string };
+      const { token } = (req.body ?? {}) as { token?: string };
+      if (!token || typeof token !== 'string') {
+        res.status(400).json({ error: 'token is required' });
+        return;
+      }
       const user = await userStore.findByEmailChangeToken(token);
       if (!user || user.emailChangeToken !== token) {
         res.status(400).json({ error: 'Invalid email-change token' });
@@ -1507,7 +1617,7 @@ export function createAuthRouter(
   //     The user's email is derived from the tempToken; a magic link is sent to that address.
   router.post('/magic-link/send', ...rl, async (req: Request, res: Response) => {
     try {
-      const { email, emailLang, mode, tempToken } = req.body as {
+      const { email, emailLang, mode, tempToken } = (req.body ?? {}) as {
         email?: string;
         emailLang?: string;
         mode?: 'login' | '2fa';
@@ -1555,11 +1665,15 @@ export function createAuthRouter(
   //     Both the magic-link token and the tempToken must be valid.
   router.post('/magic-link/verify', ...rl, async (req: Request, res: Response) => {
     try {
-      const { token, mode, tempToken } = req.body as {
-        token: string;
+      const { token, mode, tempToken } = (req.body ?? {}) as {
+        token?: string;
         mode?: 'login' | '2fa';
         tempToken?: string;
       };
+      if (!token) {
+        res.status(400).json({ error: 'token is required' });
+        return;
+      }
 
       if (mode === '2fa') {
         if (!tempToken) {
@@ -1620,7 +1734,7 @@ export function createAuthRouter(
         return;
       }
 
-      const { userId, email, mode, tempToken } = req.body as {
+      const { userId, email, mode, tempToken } = (req.body ?? {}) as {
         userId?: string;
         email?: string;
         mode?: 'login' | '2fa';
@@ -1683,12 +1797,16 @@ export function createAuthRouter(
   //     Validates the tempToken (step 1 — password) and the SMS code, then issues full tokens.
   router.post('/sms/verify', ...rl, async (req: Request, res: Response) => {
     try {
-      const { userId, code, mode, tempToken } = req.body as {
+      const { userId, code, mode, tempToken } = (req.body ?? {}) as {
         userId?: string;
-        code: string;
+        code?: string;
         mode?: 'login' | '2fa';
         tempToken?: string;
       };
+      if (!code) {
+        res.status(400).json({ error: 'code is required' });
+        return;
+      }
 
       let resolvedUserId: string;
 
@@ -2071,7 +2189,7 @@ export function createAuthRouter(
             throw new AuthError('CSRF validation failed', 'CSRF_INVALID', 403);
           }
         }
-        const { email, provider = 'email', emailLang } = req.body as { email: string; provider?: string; emailLang?: string };
+        const { email, provider = 'email', emailLang } = (req.body ?? {}) as { email?: string; provider?: string; emailLang?: string };
         if (!email) {
           throw new AuthError('email is required', 'EMAIL_REQUIRED', 400);
         }
@@ -2124,7 +2242,7 @@ export function createAuthRouter(
           res.status(500).json({ error: 'UserStore does not implement account-link methods', code: 'NOT_IMPLEMENTED' });
           return;
         }
-        const { token, loginAfterLinking } = req.body as { token: string; loginAfterLinking?: boolean };
+        const { token, loginAfterLinking } = (req.body ?? {}) as { token?: string; loginAfterLinking?: boolean };
         if (!token) {
           res.status(400).json({ error: 'token is required', code: 'TOKEN_REQUIRED' });
           return;
@@ -2180,6 +2298,9 @@ export function createAuthRouter(
   router.delete('/account', ...rl, authMiddleware, async (req: Request, res: Response) => {
     try {
       const userId = req.user!.sub;
+      if (options.onBeforeDeleteUser) {
+        await options.onBeforeDeleteUser(userId, { req, source: 'self' });
+      }
       // 1. Revoke all active sessions
       if (options.sessionStore?.revokeAllSessionsForUser) {
         await options.sessionStore.revokeAllSessionsForUser(userId);

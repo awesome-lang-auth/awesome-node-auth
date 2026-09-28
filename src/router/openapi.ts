@@ -794,6 +794,36 @@ export function buildAdminOpenApiSpec(
     },
   };
 
+  paths[`${basePath}/api/users/{id}/send-verification-email`] = {
+    post: {
+      summary: 'Send email verification email for a user',
+      operationId: 'adminSendVerificationEmail',
+      tags: ['Admin — Users'],
+      security: [adminAuth],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                emailLang: { type: 'string', description: 'Optional email language' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Verification email sent', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } } },
+        400: { description: 'Email is already verified' },
+        401: { description: 'Unauthorized' },
+        404: { description: 'User not found' },
+        500: { description: 'Server error or email verification not configured' },
+      },
+    },
+  };
+
   // ── 2FA policy ─────────────────────────────────────────────────────────────
   paths[`${basePath}/api/2fa-policy`] = {
     post: {
