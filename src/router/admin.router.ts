@@ -21,7 +21,7 @@ import { buildAdminOpenApiSpec, buildSwaggerUiHtml } from './openapi';
 import { BaseUser } from '../models/user.model';
 import { AuthConfig } from '../models/auth-config.model';
 import { AuthError } from '../models/errors';
-import { BeforeDeleteUserHook, RouterOptions, performSendVerificationEmail } from './auth.router';
+import { BeforeDeleteUserHook, RouterOptions, performSendVerificationEmail, invokeBeforeDeleteUserHook } from './auth.router';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
 import { publishRequestEvent as publishAdminEvent } from './router-events';
@@ -191,8 +191,13 @@ export interface AdminOptions {
 
   /**
    * The base path where the main auth router is mounted.
-   * Used to automatically compute uploadBaseUrl if not provided.
-   * @default '/auth'
+   * Used to automatically compute uploadBaseUrl if not provided, and as the
+   * prefix of the link sent by `POST /api/users/:id/send-verification-email`.
+   * `buildAllRouters()` sets it to the prefix it mounts the auth router on.
+   * For a standalone admin router, set it here or in `authConfig.apiPrefix`:
+   * the link prefix is `routerOptions.apiPrefix`, then this option, then
+   * `authConfig.apiPrefix`, then `'/auth'`.
+   * @default authConfig.apiPrefix || '/auth'
    */
   apiPrefix?: string;
 
@@ -238,12 +243,19 @@ export interface AdminOptions {
   /**
    * Optional hook invoked before a user account is deleted by an admin (`DELETE /admin/api/users/:id`).
    * Awaited before the user record is deleted.
-   * If the hook throws, deletion is aborted and 500 is returned.
+   * If the hook throws, deletion is aborted: an `AuthError` with an explicit
+   * status (e.g. `new AuthError(msg, 409, 'CODE')`) answers that status with
+   * `{ error, code }`; an `AuthError` without an explicit status answers 500
+   * with `{ error, code }`; any other error answers 500 `Internal server error`.
    */
   onBeforeDeleteUser?: BeforeDeleteUserHook;
 
   /**
-   * Optional AuthConfig reference, used e.g. for sending verification emails.
+   * Optional AuthConfig reference, used e.g. for sending verification emails
+   * (without it `POST /api/users/:id/send-verification-email` answers 500).
+   * On a standalone admin router (not built by `buildAllRouters()`), set
+   * `authConfig.apiPrefix` (or the `apiPrefix` option) to the prefix the auth
+   * router is mounted on, otherwise verification links use `'/auth'`.
    */
   authConfig?: AuthConfig;
 
@@ -993,7 +1005,7 @@ export function createAdminRouter(
         return;
       }
       if (options.onBeforeDeleteUser) {
-        await options.onBeforeDeleteUser(userId, { req, source: 'admin' });
+        await invokeBeforeDeleteUserHook(options.onBeforeDeleteUser, userId, { req, source: 'admin' });
       }
       await (store['deleteUser'] as (id: string) => Promise<void>)(userId);
       res.json({ success: true });
@@ -1024,8 +1036,13 @@ export function createAdminRouter(
       const siteUrl = options.authConfig.email?.siteUrl
         ? (Array.isArray(options.authConfig.email.siteUrl) ? options.authConfig.email.siteUrl[0] : options.authConfig.email.siteUrl)
         : '';
-      const effectiveRouterOptions =
-        options.routerOptions ?? (options.apiPrefix ? { apiPrefix: options.apiPrefix } : undefined);
+      // Per-field merge: routerOptions without an apiPrefix must not hide
+      // options.apiPrefix; performSendVerificationEmail then falls back to
+      // authConfig.apiPrefix and finally '/auth'.
+      const effectiveApiPrefix = options.routerOptions?.apiPrefix || options.apiPrefix;
+      const effectiveRouterOptions: RouterOptions | undefined = options.routerOptions
+        ? { ...options.routerOptions, apiPrefix: effectiveApiPrefix }
+        : (effectiveApiPrefix ? { apiPrefix: effectiveApiPrefix } : undefined);
       const result = await performSendVerificationEmail(
         userStore,
         options.authConfig,

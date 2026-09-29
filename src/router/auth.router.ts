@@ -39,6 +39,31 @@ export interface DeleteUserContext {
 
 export type BeforeDeleteUserHook = (userId: string, ctx: DeleteUserContext) => Promise<void> | void;
 
+/**
+ * Runs an `onBeforeDeleteUser` hook and normalises the error it throws.
+ *
+ * An `AuthError` thrown without an explicit status (whose `statusCode` would
+ * default to 401) is re-thrown as an `AuthError` with status 500, keeping its
+ * message, code and data: a failing hook is not an authentication failure and
+ * must not look like an expired session.  An `AuthError` with an explicit
+ * status (e.g. 409) and any other error are re-thrown unchanged.
+ * @internal
+ */
+export async function invokeBeforeDeleteUserHook(
+  hook: BeforeDeleteUserHook,
+  userId: string,
+  ctx: DeleteUserContext,
+): Promise<void> {
+  try {
+    await hook(userId, ctx);
+  } catch (err) {
+    if (err instanceof AuthError && !err.hasExplicitStatus) {
+      throw new AuthError(err.message, err.code, 500, err.data);
+    }
+    throw err;
+  }
+}
+
 export interface SendVerificationEmailOptions {
   emailLang?: string;
   siteUrl?: string;
@@ -54,7 +79,10 @@ export interface RouterOptions {
   /**
    * Optional hook invoked before a user account is deleted by the user (`DELETE /account`).
    * Awaited before sessions are revoked and before the user record is deleted.
-   * If the hook throws, deletion is aborted and 500 is returned.
+   * If the hook throws, deletion is aborted: an `AuthError` with an explicit
+   * status (e.g. `new AuthError(msg, 409, 'CODE')`) answers that status with
+   * `{ error, code }`; an `AuthError` without an explicit status answers 500
+   * with `{ error, code }`; any other error answers 500 `Internal server error`.
    */
   onBeforeDeleteUser?: BeforeDeleteUserHook;
   googleStrategy?: GoogleStrategy;
@@ -1474,10 +1502,6 @@ export function createAuthRouter(
   // POST /send-verification-email (authenticated)
   router.post('/send-verification-email', ...rl, authMiddleware, async (req: Request, res: Response) => {
     try {
-      if (!userStore.updateEmailVerificationToken || !userStore.updateEmailVerified) {
-        res.status(500).json({ error: 'UserStore does not implement email verification' });
-        return;
-      }
       const { emailLang } = (req.body ?? {}) as { emailLang?: string };
       const siteUrl = resolveSiteUrl(req, config, allowedOrigins);
       const result = await performSendVerificationEmail(
@@ -2303,7 +2327,7 @@ export function createAuthRouter(
     try {
       const userId = req.user!.sub;
       if (options.onBeforeDeleteUser) {
-        await options.onBeforeDeleteUser(userId, { req, source: 'self' });
+        await invokeBeforeDeleteUserHook(options.onBeforeDeleteUser, userId, { req, source: 'self' });
       }
       // 1. Revoke all active sessions
       if (options.sessionStore?.revokeAllSessionsForUser) {
