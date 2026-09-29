@@ -3,6 +3,31 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`apiPrefix` option on `AuthConfiguratorOptions`** (Issue #29):
+  - `new AuthConfigurator(config, userStore, { apiPrefix })` sets the default prefix for `router()` and `buildAllRouters()` when their options do not set one, and for the link built by `sendVerificationEmail()`, also before any router has been built.
+- **`AuthError.hasExplicitStatus`** (Issue #29): `true` when the status was passed to the constructor, `false` when `statusCode` is the default `401`.
+
+### Fixed
+- **Admin `:id` decoded twice** (Issue #29, regression in 1.10.7): `POST /admin/api/users/:id/send-verification-email` no longer calls `decodeURIComponent` on the parameter Express has already decoded. An id containing `%` works, and a double-encoded email (`a%2540b.c`) answers 404 instead of reaching `a@b.c`.
+- **`unsupported_store` on the user route** (Issue #29): `POST /auth/send-verification-email` now answers `501` like the admin route. The 500 pre-check that made the 501 branch unreachable is removed (1.10.7 already claimed 501 on both routes).
+- **Verification link prefix edge cases** (Issue #29):
+  - `AuthConfigurator.sendVerificationEmail` merges defaults per field. An explicit `{ routerOptions: undefined }`, or router options without `apiPrefix`, no longer override the configured prefix. Precedence: `opts.routerOptions.apiPrefix`, then the last `router()`/`buildAllRouters()` prefix, then the configurator `apiPrefix` option, then `config.apiPrefix`, then `'/auth'`.
+  - On the admin router, `routerOptions` without `apiPrefix` no longer hides the `apiPrefix` option. A standalone admin router with only `authConfig` uses `authConfig.apiPrefix` (documented: set it there or in the `apiPrefix` option).
+- **Hook errors never answer 401 by default** (Issue #29): an `AuthError` thrown by `onBeforeDeleteUser` without an explicit status now answers `500` with `{ error, code }` on both `DELETE /auth/account` and `DELETE /admin/api/users/:id`, instead of the `AuthError` default `401`. Explicit statuses (e.g. `409`) are kept as before.
+
+### Documentation
+- **Cookie clearing** (Issue #29): removed the non-existent `clearAuthCookies` export documented in 1.10.7 from `README.md` and `README.detailed.md`. The real API is `new TokenService().clearTokenCookies(res, config)`.
+- **Verification email reasons and statuses** (Issue #29):
+  - `README.detailed.md` lists every `reason` (`already_verified | not_found | no_mailer | unsupported_store`) and its status on both routes (400/404/501, plus 500 on the admin route without `authConfig`).
+  - It documents the email-as-`:id` rule: only `send-verification-email` accepts it, lookup is by id then by email, and the value is URL-encoded once.
+  - The OpenAPI entry of `POST /auth/send-verification-email` now lists 400/404/501.
+- **OAuth nonce cookie behind path-rewriting proxies** (Issue #29): documented that the nonce cookie path is the pathname of `redirect_uri` (`callbackUrl`), which must be the public callback path served by the proxy. Behaviour is unchanged.
+
+---
+
 ## [1.10.7] — 2026-09-28
 
 ### Added

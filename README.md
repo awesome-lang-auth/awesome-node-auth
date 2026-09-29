@@ -175,17 +175,12 @@ Full configuration reference → [README.detailed.md § Configuration](./README.
 
 ## Cookie Management
 
-Clear auth cookies on demand using `clearAuthCookies` or `TokenService.prototype.clearTokenCookies`:
+Clear auth cookies on demand with `TokenService.prototype.clearTokenCookies` (there is no standalone `clearAuthCookies` export):
 
 ```typescript
-import { clearAuthCookies, TokenService } from '@awesome-lang-auth/node';
+import { TokenService } from '@awesome-lang-auth/node';
 
-// Functional helper:
-clearAuthCookies(res, authConfig);
-
-// Via service instance:
-const tokenService = new TokenService();
-tokenService.clearTokenCookies(res, authConfig);
+new TokenService().clearTokenCookies(res, authConfig);
 ```
 
 ---
