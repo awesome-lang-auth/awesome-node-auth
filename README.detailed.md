@@ -767,6 +767,8 @@ To protect against Login CSRF attacks where an attacker tricks a victim's browse
 2. `GET /auth/oauth/<provider>/callback` strictly validates that the cookie is present, that the state is structured with valid signature and expiry, and that its nonce matches the nonce in the `state` query parameter using constant-time comparison (`crypto.timingSafeEqual`).
 3. If the cookie is missing, `state` is missing or invalid, or the nonces do not match, the callback rejects the request immediately with `400 {"error":"Invalid OAuth state","code":"INVALID_OAUTH_STATE"}` and never invokes `handleCallback`.
 
+> **Behind a proxy that rewrites paths:** the nonce cookie is set only with `path` equal to the pathname of the `redirect_uri` sent to the provider (your `callbackUrl`), so the browser sends it back only to that public path. Set `callbackUrl` to the full public callback URL the browser reaches (for example `https://yourapp.com/api/auth/oauth/google/callback` when the proxy maps `/api/auth` to the app's `/auth`), and make sure the proxy serves the callback on exactly that path. When the authorization URL carries no parseable `redirect_uri`, the cookie path falls back to the path the app sees (`req.baseUrl + '/oauth/<provider>/callback'`), which a path-rewriting proxy changes: in that setup the cookie is not sent and the callback answers `400 INVALID_OAUTH_STATE`.
+
 When you also attach `{ email, providerAccountId }` to the thrown `AuthError`’s `data` field **and** provide a `pendingLinkStore` in `RouterOptions`, the library stashes the conflicting provider details automatically so the front-end can drive the full conflict-resolution flow without any custom server routes:
 
 ```typescript
@@ -2301,12 +2303,27 @@ if (result.sent) {
   console.log('User is already verified; no email sent');
 } else if (result.reason === 'not_found') {
   console.log('User not found');
+} else if (result.reason === 'no_mailer') {
+  console.log('No mailer / sendVerificationEmail callback configured');
+} else if (result.reason === 'unsupported_store') {
+  console.log('UserStore does not implement email verification');
 }
 ```
 
 - Re-uses the configured 24-hour token expiry, store update, and mailer/`sendVerificationEmail` callback.
-- Accepts either a user ID or an email address.
-- Returns `{ sent: true }` or `{ sent: false, reason: 'already_verified' | 'not_found' }`.
+- Accepts either a user ID or an email address (looked up by ID first, then by email).
+- Returns `{ sent: true }` or `{ sent: false, reason: 'already_verified' | 'not_found' | 'no_mailer' | 'unsupported_store' }`. With `no_mailer` and `unsupported_store` no token is generated or stored.
+- Link prefix: `opts.routerOptions.apiPrefix`, then the prefix of the last `router()` / `buildAllRouters()` call, then the `apiPrefix` option of `new AuthConfigurator(config, userStore, { apiPrefix })`, then `config.apiPrefix`, then `'/auth'`. To get the right link before any router has been built, set `apiPrefix` on the configurator options or on `AuthConfig`.
+
+HTTP status for each `reason`, on both `POST /auth/send-verification-email` and `POST /admin/api/users/:id/send-verification-email`:
+
+| `reason` | Status | Body |
+|---|---|---|
+| (sent) | `200` | `{ "success": true }` |
+| `already_verified` | `400` | `{ "error": "Email is already verified" }` |
+| `not_found` | `404` | `{ "error": "User not found" }` |
+| `no_mailer` | `501` | `{ "error": "Email verification mailer is not configured" }` |
+| `unsupported_store` | `501` | `{ "error": "UserStore does not implement email verification" }` |
 
 #### From Admin API (`POST /admin/api/users/:id/send-verification-email`)
 
@@ -2322,10 +2339,13 @@ Content-Type: application/json
 }
 ```
 
+- **`:id` is a user ID or an email address.** It is looked up by ID first, then by email. URL-encode it once (`alice@example.com` → `/admin/api/users/alice%40example.com/send-verification-email`, e.g. with `encodeURIComponent`); the router does not decode it a second time, so a double-encoded value (`alice%2540example.com`) is treated literally and answers 404. Only this route accepts an email: `DELETE /admin/api/users/:id` and the other admin user routes take the user ID.
 - **200 OK**: `{ "success": true }`
-- **400 Bad Request**: `{ "error": "Email is already verified" }`
-- **404 Not Found**: `{ "error": "User not found" }`
-- **500 Server Error**: `{ "error": "UserStore does not implement email verification" }` or `{ "error": "AuthConfig is required for email verification" }`
+- **400 Bad Request**: `{ "error": "Email is already verified" }` (`already_verified`)
+- **404 Not Found**: `{ "error": "User not found" }` (`not_found`)
+- **500 Server Error**: `{ "error": "AuthConfig is required for email verification" }` (the admin router was created without `authConfig`)
+- **501 Not Implemented**: `{ "error": "Email verification mailer is not configured" }` (`no_mailer`) or `{ "error": "UserStore does not implement email verification" }` (`unsupported_store`)
+- **Link prefix**: `buildAllRouters()` passes the prefix it mounts the auth router on. A standalone `createAdminRouter()` uses `routerOptions.apiPrefix`, then its `apiPrefix` option, then `authConfig.apiPrefix`, then `'/auth'`: set `apiPrefix` (on the admin options or on `authConfig`) when the auth router is not mounted on `/auth`.
 
 ## Change Password
 
@@ -2479,27 +2499,24 @@ const auth = new AuthConfigurator(config, userStore, {
    - For `DELETE /admin/api/users/:id`: before `userStore.deleteUser` is called.
 2. **Atomic failure handling**: If the hook throws an error:
    - The deletion operation aborts immediately.
-   - If the error is an `AuthError`, its HTTP status code (e.g. `409 Conflict`) and error message are propagated to the caller across both `DELETE /auth/account` and `DELETE /admin/api/users/:id`. If a generic Error is thrown, HTTP `500` is returned.
+   - If the error is an `AuthError` created with an explicit status (e.g. `new AuthError('Active subscription', 409, 'BILLING_ACTIVE')` or `new AuthError('…', 'BILLING_ACTIVE', 409)`), that status and `{ error, code }` are returned on both `DELETE /auth/account` and `DELETE /admin/api/users/:id`.
+   - An `AuthError` without an explicit status (e.g. `new AuthError('…', 'BILLING_ACTIVE')`, whose `statusCode` defaults to 401) answers `500` with `{ error, code }` on both routes: a failing hook is never reported as 401, which clients usually treat as an expired session.
+   - Any other error answers `500` (`{ "error": "Internal server error" }`).
    - The user record, sessions, tokens, roles, and metadata remain completely preserved.
 3. **User existence validation**: On admin deletion (`DELETE /admin/api/users/:id`), the user record is verified first. If the user ID does not exist, HTTP `404` (`{ error: 'User not found' }`) is returned immediately and the `onBeforeDeleteUser` hook is never invoked.
-4. **Cookie clearing**: On self-service deletion (`DELETE /auth/account`), access and refresh token cookies are cleared upon successful completion. You can also manually invoke `clearAuthCookies(res, config)` or `tokenService.clearTokenCookies(res, config)` at any time to clear auth cookies.
+4. **Cookie clearing**: On self-service deletion (`DELETE /auth/account`), access and refresh token cookies are cleared upon successful completion. You can also call `new TokenService().clearTokenCookies(res, config)` at any time to clear auth cookies.
 
-## Cookie Management (`clearAuthCookies` & `TokenService.clearTokenCookies`)
+## Cookie Management (`TokenService.clearTokenCookies`)
 
-Consumers wishing to manually clear authentication cookies (access token, refresh token, CSRF cookie) from an Express `Response` can use `clearAuthCookies` or `TokenService.prototype.clearTokenCookies`:
+Consumers wishing to manually clear authentication cookies (access token, refresh token, CSRF cookie) from an Express `Response` can use `TokenService.prototype.clearTokenCookies` (there is no standalone `clearAuthCookies` export):
 
 ```typescript
-import { clearAuthCookies, TokenService } from '@awesome-lang-auth/node';
+import { TokenService } from '@awesome-lang-auth/node';
 
-// Functional helper:
-clearAuthCookies(res, authConfig);
-
-// Or via TokenService instance:
-const tokenService = new TokenService();
-tokenService.clearTokenCookies(res, authConfig);
+new TokenService().clearTokenCookies(res, authConfig);
 ```
 
-Both methods respect `config.cookieOptions` (`secure`, `sameSite`, `path`, `domain`) and clear both standard and prefixed (`__Host-`, `__Secure-`) cookie names.
+It respects `config.cookieOptions` (`secure`, `sameSite`, `path`, `domain`) and clear both standard and prefixed (`__Host-`, `__Secure-`) cookie names.
 
 ## TOTP Two-Factor Authentication — Full UI Integration Guide
 
@@ -3109,7 +3126,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |
 | `tenantStore` | `ITenantStore` | When provided, `DELETE /auth/account` also removes the user from all their tenants |
-| `onBeforeDeleteUser` | `BeforeDeleteUserHook` | Optional async hook called before account deletion (`DELETE /auth/account`, `DELETE /admin/api/users/:id`). Receives `(userId, { req, source: 'self' \| 'admin' })`. If the hook throws an `AuthError`, its `statusCode` (e.g. 409) is returned; other errors return 500. Deletion is aborted in either case. |
+| `onBeforeDeleteUser` | `BeforeDeleteUserHook` | Optional async hook called before account deletion (`DELETE /auth/account`, `DELETE /admin/api/users/:id`). Receives `(userId, { req, source: 'self' \| 'admin' })`. If the hook throws an `AuthError` with an explicit status, that status (e.g. 409) is returned with `{ error, code }`; an `AuthError` without an explicit status returns 500 with `{ error, code }` (never 401); other errors return 500. Deletion is aborted in every case. |
 | `templateStore` | `ITemplateStore` | Enables dynamic email templates and UI internationalization (v1.6.0) |
 | `swagger` | `boolean \| 'auto'` | Enable Swagger UI + OpenAPI spec. `'auto'` (default) — enabled when `NODE_ENV !== 'production'` |
 | `swaggerBasePath` | `string` | Base path for accurate OpenAPI path entries; must match the mount path (default: `'/auth'`) |
