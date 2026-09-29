@@ -30,6 +30,17 @@ export interface AuthConfiguratorOptions {
    * Optional hook invoked before a user account is deleted (self or admin).
    */
   onBeforeDeleteUser?: BeforeDeleteUserHook;
+  /**
+   * Default prefix the auth router is mounted on, used by `router()` and
+   * `buildAllRouters()` when their options do not set `apiPrefix`, and by
+   * `sendVerificationEmail()` to build the link, also before any router has
+   * been built.
+   *
+   * Precedence for the link: `opts.routerOptions.apiPrefix` > the prefix of
+   * the last `router()`/`buildAllRouters()` call > this option >
+   * `config.apiPrefix` > `'/auth'`.
+   */
+  apiPrefix?: string;
 }
 
 type BuildAllRoutersAdminOptions = Omit<AdminOptions, 'jwtSecret' | 'apiPrefix' | 'eventBus'> & {
@@ -80,6 +91,7 @@ export class AuthConfigurator {
     this._lastRouterOptions = options;
     return createAuthRouter(this.userStore, this.config, {
       ...options,
+      apiPrefix: options?.apiPrefix || this.options.apiPrefix,
       eventBus: options?.eventBus ?? this.options.eventBus,
       onBeforeDeleteUser: options?.onBeforeDeleteUser ?? this.options.onBeforeDeleteUser,
     });
@@ -87,7 +99,9 @@ export class AuthConfigurator {
 
   buildAllRouters(options: BuildAllRoutersOptions): Router {
     const composite = Router();
-    const authOptions = options.auth;
+    const authOptions: RouterOptions | undefined = options.auth || this.options.apiPrefix
+      ? { ...options.auth, apiPrefix: options.auth?.apiPrefix || this.options.apiPrefix }
+      : undefined;
     this._lastRouterOptions = authOptions;
     const authPrefix = resolveApiPrefix(this.config, authOptions);
     const normalizedPrefix = authPrefix.endsWith('/') ? authPrefix.slice(0, -1) : authPrefix;
@@ -100,7 +114,7 @@ export class AuthConfigurator {
         eventBus: options.admin.eventBus ?? this.options.eventBus,
         onBeforeDeleteUser: options.admin.onBeforeDeleteUser ?? options.auth?.onBeforeDeleteUser ?? this.options.onBeforeDeleteUser,
         authConfig: options.admin.authConfig ?? this.config,
-        routerOptions: options.admin.routerOptions ?? options.auth,
+        routerOptions: options.admin.routerOptions ?? authOptions,
       }),
     );
     composite.use(normalizedPrefix, this.router(authOptions));
@@ -118,11 +132,23 @@ export class AuthConfigurator {
     userIdOrEmail: string,
     opts?: SendVerificationEmailOptions,
   ): Promise<SendVerificationEmailResult> {
-    const defaultRouterOpts =
-      this._lastRouterOptions ?? (this.config.apiPrefix ? { apiPrefix: this.config.apiPrefix } : undefined);
+    // Per-field defaults: an explicit `routerOptions: undefined`, or router
+    // options without an apiPrefix (e.g. `router({ sessionStore })`), must not
+    // hide the configured prefix.  Before `router()`/`buildAllRouters()` has
+    // run, the configurator's own `apiPrefix` option and `config.apiPrefix`
+    // are used.
+    const baseRouterOpts = opts?.routerOptions ?? this._lastRouterOptions;
+    const apiPrefix =
+      opts?.routerOptions?.apiPrefix ||
+      this._lastRouterOptions?.apiPrefix ||
+      this.options.apiPrefix ||
+      this.config.apiPrefix;
+    const routerOptions: RouterOptions | undefined = baseRouterOpts || apiPrefix
+      ? { ...baseRouterOpts, apiPrefix }
+      : undefined;
     const mergedOpts: SendVerificationEmailOptions = {
-      routerOptions: opts?.routerOptions ?? defaultRouterOpts,
       ...opts,
+      routerOptions,
     };
     return performSendVerificationEmail(
       this.userStore,

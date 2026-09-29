@@ -290,7 +290,10 @@ export function buildAuthOpenApiSpec(
       requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', properties: { emailLang: { type: 'string' } } } } } },
       responses: {
         200: { description: 'Email sent', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } } },
+        400: { description: 'Email is already verified (reason `already_verified`)' },
         401: { description: 'Unauthorized' },
+        404: { description: 'User not found (reason `not_found`)' },
+        501: { description: 'Email verification mailer is not configured (reason `no_mailer`) or UserStore does not implement email verification (reason `unsupported_store`)' },
       },
     },
   };
@@ -803,7 +806,7 @@ export function buildAdminOpenApiSpec(
       operationId: 'adminSendVerificationEmail',
       tags: ['Admin — Users'],
       security: [adminAuth],
-      parameters: [{ name: 'id', in: 'path', required: true, description: 'User ID or URL-encoded email address', schema: { type: 'string' } }],
+      parameters: [{ name: 'id', in: 'path', required: true, description: 'User ID or email address, URL-encoded once (e.g. `alice%40example.com`). Looked up by ID first, then by email. Do not double-encode.', schema: { type: 'string' } }],
       requestBody: {
         required: false,
         content: {
@@ -819,10 +822,11 @@ export function buildAdminOpenApiSpec(
       },
       responses: {
         200: { description: 'Verification email sent', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } } },
-        400: { description: 'Email is already verified' },
+        400: { description: 'Email is already verified (reason `already_verified`)' },
         401: { description: 'Unauthorized' },
-        404: { description: 'User not found' },
-        501: { description: 'Email verification mailer is not configured or UserStore does not implement email verification' },
+        404: { description: 'User not found (reason `not_found`)' },
+        500: { description: 'AuthConfig is not configured on the admin router (`authConfig` option)' },
+        501: { description: 'Email verification mailer is not configured (reason `no_mailer`) or UserStore does not implement email verification (reason `unsupported_store`)' },
       },
     },
   };
