@@ -3,7 +3,7 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.8] — 2026-09-29
 
 ### Added
 - **`apiPrefix` option on `AuthConfiguratorOptions`** (Issue #29):
