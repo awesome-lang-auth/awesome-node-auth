@@ -3,6 +3,23 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Route parameters decoded twice** (follow-up to #29): removed the extra `decodeURIComponent` on route parameters that Express has already decoded.
+  - Admin routes:
+    - `DELETE /api/users/:id/roles/:role`
+    - `DELETE /api/sessions/:handle`
+    - `DELETE /api/roles/:name`
+    - `DELETE /api/tenants/:id`
+    - `GET` and `POST /api/tenants/:id/users`
+    - `DELETE /api/tenants/:id/users/:userId`
+    - `POST /api/users/:id/send-verification-email`
+  - User route: `DELETE /auth/sessions/:handle`.
+  - A value containing a literal `%` (sent as `%25`) no longer answers 500 (`URIError`), and `%2541` is passed on as `%41` instead of `A`.
+
+---
+
 ## [1.10.7] — 2026-09-28
 
 ### Added

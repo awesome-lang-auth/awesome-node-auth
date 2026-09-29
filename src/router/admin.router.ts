@@ -1017,7 +1017,9 @@ export function createAdminRouter(
         res.status(500).json({ error: 'AuthConfig is required for email verification' });
         return;
       }
-      const userIdOrEmail = decodeURIComponent(req.params['id'] as string);
+      // Express has already decoded the path parameter once: decoding it again
+      // would break ids containing '%' and turn '%2540' into '@'.
+      const userIdOrEmail = req.params['id'] as string;
       const { emailLang } = (req.body ?? {}) as { emailLang?: string };
       const siteUrl = options.authConfig.email?.siteUrl
         ? (Array.isArray(options.authConfig.email.siteUrl) ? options.authConfig.email.siteUrl[0] : options.authConfig.email.siteUrl)
@@ -1170,7 +1172,7 @@ export function createAdminRouter(
     if (!options.rbacStore) { res.status(404).json({ error: 'RBAC store not configured' }); return; }
     try {
       const userId = req.params['id'] as string;
-      const role = decodeURIComponent(req.params['role'] as string);
+      const role = req.params['role'] as string;
       await options.rbacStore.removeRoleFromUser(userId, role);
       publishAdminEvent(eventBus, AuthEventNames.ROLE_REVOKED, req, {
         userId,
@@ -1418,7 +1420,7 @@ export function createAdminRouter(
   router.delete('/api/sessions/:handle', guard, async (req: Request, res: Response) => {
     if (!options.sessionStore) { res.status(404).json({ error: 'Session store not configured' }); return; }
     try {
-      await options.sessionStore.revokeSession(decodeURIComponent(req.params['handle'] as string));
+      await options.sessionStore.revokeSession(req.params['handle'] as string);
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -1465,7 +1467,7 @@ export function createAdminRouter(
   router.delete('/api/roles/:name', guard, async (req: Request, res: Response) => {
     if (!options.rbacStore) { res.status(404).json({ error: 'RBAC store not configured' }); return; }
     try {
-      await options.rbacStore.deleteRole(decodeURIComponent(req.params['name'] as string));
+      await options.rbacStore.deleteRole(req.params['name'] as string);
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -1502,7 +1504,7 @@ export function createAdminRouter(
   router.delete('/api/tenants/:id', guard, async (req: Request, res: Response) => {
     if (!options.tenantStore) { res.status(404).json({ error: 'Tenant store not configured' }); return; }
     try {
-      await options.tenantStore.deleteTenant(decodeURIComponent(req.params['id'] as string));
+      await options.tenantStore.deleteTenant(req.params['id'] as string);
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -1515,7 +1517,7 @@ export function createAdminRouter(
   router.get('/api/tenants/:id/users', guard, async (req: Request, res: Response) => {
     if (!options.tenantStore) { res.status(404).json({ error: 'Tenant store not configured' }); return; }
     try {
-      const userIds = await options.tenantStore.getUsersForTenant(decodeURIComponent(req.params['id'] as string));
+      const userIds = await options.tenantStore.getUsersForTenant(req.params['id'] as string);
       res.json({ userIds });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -1528,7 +1530,7 @@ export function createAdminRouter(
     try {
       const { userId } = (req.body ?? {}) as { userId?: string };
       if (!userId) { res.status(400).json({ error: 'userId is required' }); return; }
-      await options.tenantStore.associateUserWithTenant(userId, decodeURIComponent(req.params['id'] as string));
+      await options.tenantStore.associateUserWithTenant(userId, req.params['id'] as string);
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -1540,8 +1542,8 @@ export function createAdminRouter(
     if (!options.tenantStore) { res.status(404).json({ error: 'Tenant store not configured' }); return; }
     try {
       await options.tenantStore.disassociateUserFromTenant(
-        decodeURIComponent(req.params['userId'] as string),
-        decodeURIComponent(req.params['id'] as string),
+        req.params['userId'] as string,
+        req.params['id'] as string,
       );
       res.json({ success: true });
     } catch {
