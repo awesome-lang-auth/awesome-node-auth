@@ -17,6 +17,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
   - `AuthConfigurator.sendVerificationEmail` merges defaults per field. An explicit `{ routerOptions: undefined }`, or router options without `apiPrefix`, no longer override the configured prefix. Precedence: `opts.routerOptions.apiPrefix`, then the last `router()`/`buildAllRouters()` prefix, then the configurator `apiPrefix` option, then `config.apiPrefix`, then `'/auth'`.
   - On the admin router, `routerOptions` without `apiPrefix` no longer hides the `apiPrefix` option. A standalone admin router with only `authConfig` uses `authConfig.apiPrefix` (documented: set it there or in the `apiPrefix` option).
 - **Hook errors never answer 401 by default** (Issue #29): an `AuthError` thrown by `onBeforeDeleteUser` without an explicit status now answers `500` with `{ error, code }` on both `DELETE /auth/account` and `DELETE /admin/api/users/:id`, instead of the `AuthError` default `401`. Explicit statuses (e.g. `409`) are kept as before.
+- **Route parameters decoded twice** (follow-up to #29): removed the extra `decodeURIComponent` on route parameters that Express has already decoded.
+  - Admin routes:
+    - `DELETE /api/users/:id/roles/:role`
+    - `DELETE /api/sessions/:handle`
+    - `DELETE /api/roles/:name`
+    - `DELETE /api/tenants/:id`
+    - `GET` and `POST /api/tenants/:id/users`
+    - `DELETE /api/tenants/:id/users/:userId`
+    - `POST /api/users/:id/send-verification-email`
+  - User route: `DELETE /auth/sessions/:handle`.
+  - A value containing a literal `%` (sent as `%25`) no longer answers 500 (`URIError`), and `%2541` is passed on as `%41` instead of `A`.
 
 ### Documentation
 - **Cookie clearing** (Issue #29): removed the non-existent `clearAuthCookies` export documented in 1.10.7 from `README.md` and `README.detailed.md`. The real API is `new TokenService().clearTokenCookies(res, config)`.

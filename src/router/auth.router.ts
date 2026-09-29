@@ -1291,7 +1291,7 @@ export function createAuthRouter(
     // DELETE /sessions/:handle — revoke a specific session owned by the current user
     router.delete('/sessions/:handle', ...rl, authMiddleware, async (req: Request, res: Response) => {
       try {
-        const handle = decodeURIComponent(req.params['handle'] as string);
+        const handle = req.params['handle'] as string;
         const session = await options.sessionStore!.getSession(handle);
         // Ensure the session belongs to the authenticated user before revoking
         if (!session || session.userId !== req.user!.sub) {
