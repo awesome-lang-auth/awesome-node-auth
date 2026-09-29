@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { BaseUser } from '../src/models/user.model';
@@ -94,19 +95,19 @@ describe('Auth Router Integration', () => {
 
   describe('POST /auth/login', () => {
     it('logs in with valid credentials', async () => {
-      const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.headers['set-cookie']).toBeDefined();
     });
 
     it('returns 401 with wrong password', async () => {
-      const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'wrong' });
+      const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'wrong' });
       expect(res.status).toBe(401);
     });
 
     it('returns 401 for unknown user', async () => {
-      const res = await request(app).post('/auth/login').send({ email: 'no@one.com', password: 'pass' });
+      const res = await request(await listen(app)).post('/auth/login').send({ email: 'no@one.com', password: 'pass' });
       expect(res.status).toBe(401);
     });
   });
@@ -114,7 +115,7 @@ describe('Auth Router Integration', () => {
   describe('GET /auth/me', () => {
     it('returns user profile when authenticated', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
-      const res = await request(app).get('/auth/me').set('Cookie', `accessToken=${tokens.accessToken}`);
+      const res = await request(await listen(app)).get('/auth/me').set('Cookie', `accessToken=${tokens.accessToken}`);
       expect(res.status).toBe(200);
       expect(res.body.sub).toBe('1');
       expect(res.body.email).toBe('user@test.com');
@@ -125,7 +126,7 @@ describe('Auth Router Integration', () => {
     });
 
     it('returns 403 without token', async () => {
-      const res = await request(app).get('/auth/me');
+      const res = await request(await listen(app)).get('/auth/me');
       expect(res.status).toBe(403);
     });
   });
@@ -133,7 +134,7 @@ describe('Auth Router Integration', () => {
   describe('POST /auth/logout', () => {
     it('logs out and clears cookies', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
-      const res = await request(app).post('/auth/logout').set('Cookie', `accessToken=${tokens.accessToken}`);
+      const res = await request(await listen(app)).post('/auth/logout').set('Cookie', `accessToken=${tokens.accessToken}`);
       expect(res.status).toBe(200);
     });
   });
@@ -151,7 +152,7 @@ describe('Auth Router Integration', () => {
       registerApp.use(express.json());
       registerApp.use('/auth', createAuthRouter(store, config, { defaultRegister: true }));
 
-      const res = await request(registerApp)
+      const res = await request(await listen(registerApp))
         .post('/auth/register')
         .send({ email: 'new@test.com', password: 'new-password', firstName: 'New', isAdmin: true });
 
@@ -173,7 +174,7 @@ describe('Auth Router Integration', () => {
       registerApp.use(express.json());
       registerApp.use('/auth', createAuthRouter(store, config));
 
-      const res = await request(registerApp)
+      const res = await request(await listen(registerApp))
         .post('/auth/register')
         .send({ email: 'new@test.com', password: 'new-password' });
 
@@ -194,10 +195,10 @@ describe('Auth Router Integration', () => {
       eventApp.use(express.json());
       eventApp.use('/auth', createAuthRouter(store, config, { eventBus: bus }));
 
-      const ok = await request(eventApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const ok = await request(await listen(eventApp)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(ok.status).toBe(200);
 
-      const bad = await request(eventApp).post('/auth/login').send({ email: 'user@test.com', password: 'wrong' });
+      const bad = await request(await listen(eventApp)).post('/auth/login').send({ email: 'user@test.com', password: 'wrong' });
       expect(bad.status).toBe(401);
 
       expect(events).toContain(AuthEventNames.AUTH_LOGIN_SUCCESS);
@@ -221,7 +222,7 @@ describe('Auth Router Integration', () => {
       user.magicLinkToken = 'event-magic-token';
       user.magicLinkTokenExpiry = new Date(Date.now() + 60_000);
 
-      const res = await request(eventApp)
+      const res = await request(await listen(eventApp))
         .post('/auth/magic-link/verify')
         .send({ token: 'event-magic-token' });
 
@@ -247,7 +248,7 @@ describe('Auth Router Integration', () => {
       user.smsCode = await passwordService.hash('123456');
       user.smsCodeExpiry = new Date(Date.now() + 60_000);
 
-      const res = await request(eventApp)
+      const res = await request(await listen(eventApp))
         .post('/auth/sms/verify')
         .send({ userId: '1', code: '123456' });
 
@@ -261,25 +262,25 @@ describe('Auth Router Integration', () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
       const user = users.get('1')!;
       user.refreshToken = tokens.refreshToken;
-      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${tokens.refreshToken}`);
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${tokens.refreshToken}`);
       expect(res.status).toBe(200);
     });
 
     it('rejects invalid refresh token', async () => {
-      const res = await request(app).post('/auth/refresh').set('Cookie', 'refreshToken=invalid');
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', 'refreshToken=invalid');
       expect(res.status).toBe(401);
     });
   });
 
   describe('POST /auth/forgot-password', () => {
     it('returns success even for unknown email', async () => {
-      const res = await request(app).post('/auth/forgot-password').send({ email: 'nobody@test.com' });
+      const res = await request(await listen(app)).post('/auth/forgot-password').send({ email: 'nobody@test.com' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it('sends reset email for known user', async () => {
-      const res = await request(app).post('/auth/forgot-password').send({ email: 'user@test.com' });
+      const res = await request(await listen(app)).post('/auth/forgot-password').send({ email: 'user@test.com' });
       expect(res.status).toBe(200);
       expect(config.email?.sendPasswordReset).toHaveBeenCalled();
     });
@@ -290,7 +291,7 @@ describe('Auth Router Integration', () => {
       const user = users.get('1')!;
       user.resetToken = 'valid-token';
       user.resetTokenExpiry = new Date(Date.now() + 60000);
-      const res = await request(app).post('/auth/reset-password').send({ token: 'valid-token', password: 'newpassword' });
+      const res = await request(await listen(app)).post('/auth/reset-password').send({ token: 'valid-token', password: 'newpassword' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
@@ -299,7 +300,7 @@ describe('Auth Router Integration', () => {
       const user = users.get('1')!;
       user.resetToken = 'expired-token';
       user.resetTokenExpiry = new Date(Date.now() - 1000);
-      const res = await request(app).post('/auth/reset-password').send({ token: 'expired-token', password: 'newpassword' });
+      const res = await request(await listen(app)).post('/auth/reset-password').send({ token: 'expired-token', password: 'newpassword' });
       expect(res.status).toBe(400);
     });
   });
@@ -307,7 +308,7 @@ describe('Auth Router Integration', () => {
   describe('2FA flow', () => {
     it('sets up 2FA', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
-      const res = await request(app).post('/auth/2fa/setup').set('Cookie', `accessToken=${tokens.accessToken}`);
+      const res = await request(await listen(app)).post('/auth/2fa/setup').set('Cookie', `accessToken=${tokens.accessToken}`);
       expect(res.status).toBe(200);
       expect(res.body.secret).toBeTruthy();
       expect(res.body.qrCode).toContain('data:image');
@@ -315,10 +316,10 @@ describe('Auth Router Integration', () => {
 
     it('verifies 2FA setup and enables it', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
-      const setupRes = await request(app).post('/auth/2fa/setup').set('Cookie', `accessToken=${tokens.accessToken}`);
+      const setupRes = await request(await listen(app)).post('/auth/2fa/setup').set('Cookie', `accessToken=${tokens.accessToken}`);
       const { secret } = setupRes.body as { secret: string };
       const totpCode = await totp.generate({ secret });
-      const verifyRes = await request(app)
+      const verifyRes = await request(await listen(app))
         .post('/auth/2fa/verify-setup')
         .set('Cookie', `accessToken=${tokens.accessToken}`)
         .send({ token: totpCode, secret });
@@ -330,7 +331,7 @@ describe('Auth Router Integration', () => {
       const secret = totp.generateSecret();
       user.totpSecret = secret;
       user.isTotpEnabled = true;
-      const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.status).toBe(200);
       expect(res.body.requiresTwoFactor).toBe(true);
       expect(res.body.tempToken).toBeTruthy();
@@ -351,7 +352,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(testApp)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.body.available2faMethods).toContain('sms');
     });
 
@@ -367,7 +368,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
-      const res = await request(testApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(testApp)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.body.available2faMethods).toContain('magic-link');
     });
 
@@ -376,10 +377,10 @@ describe('Auth Router Integration', () => {
       const secret = totp.generateSecret();
       user.totpSecret = secret;
       user.isTotpEnabled = true;
-      const loginRes = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const loginRes = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       const { tempToken } = loginRes.body as { tempToken: string };
       const totpCode = await totp.generate({ secret });
-      const verifyRes = await request(app).post('/auth/2fa/verify').send({ tempToken, totpCode });
+      const verifyRes = await request(await listen(app)).post('/auth/2fa/verify').send({ tempToken, totpCode });
       expect(verifyRes.status).toBe(200);
       expect(verifyRes.headers['set-cookie']).toBeDefined();
     });
@@ -392,7 +393,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
-      const res = await request(testApp).post('/auth/magic-link/send').send({ email: 'user@test.com' });
+      const res = await request(await listen(testApp)).post('/auth/magic-link/send').send({ email: 'user@test.com' });
       expect(res.status).toBe(200);
       expect(sendMagicLink).toHaveBeenCalled();
     });
@@ -409,7 +410,7 @@ describe('Auth Router Integration', () => {
       user.magicLinkToken = 'test-magic-token';
       user.magicLinkTokenExpiry = new Date(Date.now() + 60000);
 
-      const res = await request(testApp).post('/auth/magic-link/verify').send({ token: 'test-magic-token' });
+      const res = await request(await listen(testApp)).post('/auth/magic-link/verify').send({ token: 'test-magic-token' });
       expect(res.status).toBe(200);
       expect(res.headers['set-cookie']).toBeDefined();
     });
@@ -421,7 +422,7 @@ describe('Auth Router Integration', () => {
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
       const tempToken = tokenService.generateTempToken({ sub: '1', email: 'user@test.com' }, cfgWithMagic);
-      const res = await request(testApp)
+      const res = await request(await listen(testApp))
         .post('/auth/magic-link/send')
         .send({ mode: '2fa', tempToken });
       expect(res.status).toBe(200);
@@ -434,7 +435,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
-      const res = await request(testApp).post('/auth/magic-link/send').send({ mode: '2fa' });
+      const res = await request(await listen(testApp)).post('/auth/magic-link/send').send({ mode: '2fa' });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('TEMP_TOKEN_REQUIRED');
     });
@@ -451,7 +452,7 @@ describe('Auth Router Integration', () => {
       user.magicLinkTokenExpiry = new Date(Date.now() + 60000);
       const tempToken = tokenService.generateTempToken({ sub: '1', email: 'user@test.com' }, cfgWithMagic);
 
-      const res = await request(testApp)
+      const res = await request(await listen(testApp))
         .post('/auth/magic-link/verify')
         .send({ token: 'ml-2fa-token', mode: '2fa', tempToken });
       expect(res.status).toBe(200);
@@ -464,7 +465,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithMagic));
-      const res = await request(testApp)
+      const res = await request(await listen(testApp))
         .post('/auth/magic-link/verify')
         .send({ token: 'some-token', mode: '2fa' });
       expect(res.status).toBe(400);
@@ -479,7 +480,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithVerification));
-      const res = await request(testApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(testApp)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
     });
@@ -490,7 +491,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithVerification));
-      const res = await request(testApp).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
+      const res = await request(await listen(testApp)).post('/auth/login').send({ email: 'user@test.com', password: 'password123' });
       expect(res.status).toBe(200);
     });
   });
@@ -504,13 +505,13 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/send').send({ userId: '1' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ userId: '1' });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('PHONE_NOT_SET');
     });
 
     it('returns 500 when SMS is not configured', async () => {
-      const res = await request(app).post('/auth/sms/send').send({ userId: '1' });
+      const res = await request(await listen(app)).post('/auth/sms/send').send({ userId: '1' });
       expect(res.status).toBe(500);
     });
 
@@ -522,7 +523,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/send').send({ userId: 'nonexistent' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ userId: 'nonexistent' });
       expect(res.status).toBe(404);
     });
 
@@ -534,7 +535,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/send').send({ email: 'noone@example.com' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ email: 'noone@example.com' });
       // Should silently succeed to prevent email enumeration
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -549,7 +550,7 @@ describe('Auth Router Integration', () => {
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
       // user '1' has no phoneNumber in this test (not set in beforeEach)
-      const res = await request(testApp).post('/auth/sms/send').send({ email: 'user@test.com' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ email: 'user@test.com' });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('PHONE_NOT_SET');
     });
@@ -562,7 +563,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/send').send({ mode: '2fa' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ mode: '2fa' });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('TEMP_TOKEN_REQUIRED');
     });
@@ -575,7 +576,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/send').send({ mode: '2fa', tempToken: 'invalid' });
+      const res = await request(await listen(testApp)).post('/auth/sms/send').send({ mode: '2fa', tempToken: 'invalid' });
       expect(res.status).toBe(401);
       expect(res.body.code).toBe('INVALID_TEMP_TOKEN');
     });
@@ -588,7 +589,7 @@ describe('Auth Router Integration', () => {
       const testApp = express();
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithSms));
-      const res = await request(testApp).post('/auth/sms/verify').send({ mode: '2fa', code: '123456' });
+      const res = await request(await listen(testApp)).post('/auth/sms/verify').send({ mode: '2fa', code: '123456' });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('TEMP_TOKEN_REQUIRED');
     });
@@ -604,7 +605,7 @@ describe('Auth Router Integration', () => {
       testApp.use(express.json());
       testApp.use('/auth', createAuthRouter(store, cfgWithCustom));
 
-      const loginRes = await request(testApp)
+      const loginRes = await request(await listen(testApp))
         .post('/auth/login')
         .send({ email: 'user@test.com', password: 'password123' });
       expect(loginRes.status).toBe(200);
@@ -628,12 +629,12 @@ describe('Auth Router Integration', () => {
       testApp.use('/auth', createAuthRouter(store, cfgWithCustom));
 
       // Login first to get a refresh token
-      const loginRes = await request(testApp)
+      const loginRes = await request(await listen(testApp))
         .post('/auth/login')
         .send({ email: 'user@test.com', password: 'password123' });
       const cookies: string[] = loginRes.headers['set-cookie'] as unknown as string[];
 
-      const refreshRes = await request(testApp)
+      const refreshRes = await request(await listen(testApp))
         .post('/auth/refresh')
         .set('Cookie', cookies);
       expect(refreshRes.status).toBe(200);
@@ -648,7 +649,7 @@ describe('Auth Router Integration', () => {
 
   describe('Bearer token strategy (X-Auth-Strategy: bearer)', () => {
     it('login with bearer header returns tokens in body instead of cookies', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/login')
         .set('X-Auth-Strategy', 'bearer')
         .send({ email: 'user@test.com', password: 'password123' });
@@ -661,7 +662,7 @@ describe('Auth Router Integration', () => {
     });
 
     it('login without bearer header sets cookies (default behaviour unchanged)', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'user@test.com', password: 'password123' });
       expect(res.status).toBe(200);
@@ -672,7 +673,7 @@ describe('Auth Router Integration', () => {
 
     it('auth middleware accepts Authorization: Bearer header', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/me')
         .set('Authorization', `Bearer ${tokens.accessToken}`);
       expect(res.status).toBe(200);
@@ -682,7 +683,7 @@ describe('Auth Router Integration', () => {
     it('refresh with refreshToken in body returns new tokens in body', async () => {
       const tokens = tokenService.generateTokenPair({ sub: '1', email: 'user@test.com' }, config);
       users.get('1')!.refreshToken = tokens.refreshToken;
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/refresh')
         .set('X-Auth-Strategy', 'bearer')
         .send({ refreshToken: tokens.refreshToken });
@@ -776,7 +777,7 @@ describe('Bearer token — link-request and link-verify (mobile client flow)', (
 
     sendVerificationEmail.mockClear();
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${accessToken}`)
       .set('X-Auth-Strategy', 'bearer')
@@ -816,7 +817,7 @@ describe('Bearer token — link-request and link-verify (mobile client flow)', (
     sendVerificationEmail.mockClear();
 
     // Step 1: link-request
-    await request(app)
+    await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${accessToken}`)
       .set('X-Auth-Strategy', 'bearer')
@@ -828,7 +829,7 @@ describe('Bearer token — link-request and link-verify (mobile client flow)', (
     expect(user.accountLinkToken).toBe(linkToken);
 
     // Step 2: link-verify (no auth required — user opens deep-link)
-    const verifyRes = await request(app)
+    const verifyRes = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: linkToken });
 
@@ -860,7 +861,7 @@ describe('Bearer token — link-request and link-verify (mobile client flow)', (
     ).accessToken;
 
     // No X-Auth-Strategy header — Authorization: Bearer alone is enough for auth
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ email: 'another@mobile.com' });
@@ -963,7 +964,7 @@ describe('POST /auth/link-verify — loginAfterLinking', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, loginConfig, { linkedAccountsStore }));
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: linkToken, loginAfterLinking: true });
 
@@ -996,7 +997,7 @@ describe('POST /auth/link-verify — loginAfterLinking', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, loginConfig, { linkedAccountsStore }));
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: linkToken });
 
@@ -1100,7 +1101,7 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
     }));
 
     const state = encodeOAuthState('fake-nonce', conflictConfig.email!.siteUrl as string, undefined, undefined, conflictConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
@@ -1128,7 +1129,7 @@ describe('OAuth conflict redirect — pendingLinkStore integration', () => {
     }));
 
     const state = encodeOAuthState('fake-nonce', conflictConfig.email!.siteUrl as string, undefined, undefined, conflictConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=fake-nonce');
     expect(res.status).toBe(302);
@@ -1159,7 +1160,7 @@ describe('CSRF auto-initialization middleware', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, csrfConfig));
-    const res = await request(app).post('/auth/login').send({ email: 'a@a.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'a@a.com', password: 'pass' });
     const setCookieHeader = res.headers['set-cookie'] as string[] | string | undefined;
     const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : setCookieHeader ? [setCookieHeader] : [];
     expect(cookies.some((c: string) => c.startsWith('csrf-token='))).toBe(true);
@@ -1185,7 +1186,7 @@ describe('CSRF auto-initialization middleware', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, nocsrfConfig));
-    const res = await request(app).post('/auth/login').send({ email: 'a@a.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'a@a.com', password: 'pass' });
     const setCookieHeader = res.headers['set-cookie'] as string[] | string | undefined;
     const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : setCookieHeader ? [setCookieHeader] : [];
     expect(cookies.some((c: string) => c.startsWith('csrf-token='))).toBe(false);
@@ -1255,14 +1256,14 @@ describe('Session Management', () => {
   });
 
   it('login creates a new session in the store', async () => {
-    const res = await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
     expect(res.status).toBe(200);
     expect(sessionStore.createSession).toHaveBeenCalledOnce();
     expect(sessionStore.sessions.size).toBe(1);
   });
 
   it('login embeds sid in the access token', async () => {
-    const res = await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
     expect(res.status).toBe(200);
     const cookies = (res.headers['set-cookie'] as string[]) ?? [];
     const atCookie = cookies.find(c => c.startsWith('accessToken='));
@@ -1273,10 +1274,10 @@ describe('Session Management', () => {
   });
 
   it('logout revokes the session in the store', async () => {
-    await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
+    await request(await listen(app)).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
     const handle = [...sessionStore.sessions.keys()][0];
     const loginTokens = new TokenService().generateTokenPair({ sub: 'u1', email: 's@test.com', sid: handle }, sessionConfig);
-    await request(app).post('/auth/logout').set('Cookie', `accessToken=${loginTokens.accessToken}`);
+    await request(await listen(app)).post('/auth/logout').set('Cookie', `accessToken=${loginTokens.accessToken}`);
     expect(sessionStore.revokeSession).toHaveBeenCalledWith(handle);
     expect(sessionStore.sessions.has(handle)).toBe(false);
   });
@@ -1288,21 +1289,21 @@ describe('Session Management', () => {
     const tokens = ts.generateTokenPair({ sub: 'u1', email: 's@test.com', sid: handle }, sessionConfig);
     (sessionUsers.get('u1') as BaseUser).refreshToken = tokens.refreshToken;
     // Session does NOT exist in store — revoked
-    const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${tokens.refreshToken}`);
+    const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${tokens.refreshToken}`);
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('SESSION_REVOKED');
   });
 
   it('refresh rotates the session (revokes old, creates new)', async () => {
     // Login to get an initial session
-    const loginRes = await request(app).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
+    const loginRes = await request(await listen(app)).post('/auth/login').send({ email: 's@test.com', password: 'pass' });
     const oldHandle = [...sessionStore.sessions.keys()][0];
     const cookies = (loginRes.headers['set-cookie'] as unknown as string[]) ?? [];
     const oldRefreshToken = cookies.find(c => c.startsWith('refreshToken='))?.split(';')[0].split('=')[1]!;
     expect(sessionStore.sessions.size).toBe(1);
 
     // Refresh
-    const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${oldRefreshToken}`);
+    const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${oldRefreshToken}`);
     expect(res.status).toBe(200);
 
     // Old session is gone, new one was created

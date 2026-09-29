@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 import { AuthConfigurator, createAdminRouter, PasswordService, AuthError } from '../src/index';
 import type { AuthConfig, IUserStore, BaseUser } from '../src/index';
@@ -167,8 +168,8 @@ function createDemoApp() {
 // ── Helper: register + login, return auth cookies ────────────────────────────
 
 async function registerAndLogin(app: express.Application, email = 'alice@example.com', password = 'secret123') {
-  await request(app).post('/auth/register').send({ email, password });
-  const res = await request(app).post('/auth/login').send({ email, password });
+  await request(await listen(app)).post('/auth/register').send({ email, password });
+  const res = await request(await listen(app)).post('/auth/login').send({ email, password });
   // supertest returns Set-Cookie as an array of strings
   const cookies: string[] = (res.headers['set-cookie'] as string[] | string | undefined) ?? [];
   return { cookies: Array.isArray(cookies) ? cookies : [cookies] };
@@ -187,7 +188,7 @@ describe('Demo Express Server', () => {
 
   describe('POST /auth/register', () => {
     it('creates a new user and returns 201', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(201);
@@ -195,20 +196,20 @@ describe('Demo Express Server', () => {
     });
 
     it('returns 409 when email is already registered', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'other123' });
       expect(res.status).toBe(409);
     });
 
     it('returns 400 when email is missing', async () => {
-      const res = await request(app).post('/auth/register').send({ password: 'secret123' });
+      const res = await request(await listen(app)).post('/auth/register').send({ password: 'secret123' });
       expect(res.status).toBe(400);
     });
 
     it('returns 400 when password is missing', async () => {
-      const res = await request(app).post('/auth/register').send({ email: 'alice@example.com' });
+      const res = await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com' });
       expect(res.status).toBe(400);
     });
   });
@@ -217,8 +218,8 @@ describe('Demo Express Server', () => {
 
   describe('POST /auth/login', () => {
     it('logs in and sets HttpOnly JWT cookies', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(200);
@@ -233,15 +234,15 @@ describe('Demo Express Server', () => {
     });
 
     it('returns 401 for wrong password', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'alice@example.com', password: 'wrong' });
       expect(res.status).toBe(401);
     });
 
     it('returns 401 for unknown email', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'nobody@example.com', password: 'secret123' });
       expect(res.status).toBe(401);
@@ -252,13 +253,13 @@ describe('Demo Express Server', () => {
 
   describe('GET /auth/me (protected)', () => {
     it('returns 403 with no token', async () => {
-      const res = await request(app).get('/auth/me');
+      const res = await request(await listen(app)).get('/auth/me');
       expect(res.status).toBe(403);
     });
 
     it('returns the authenticated user when token cookie is present', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/me')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -266,7 +267,7 @@ describe('Demo Express Server', () => {
     });
 
     it('returns 403 with a tampered token', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/me')
         .set('Cookie', ['accessToken=invalid.token.here']);
       expect(res.status).toBe(403);
@@ -278,7 +279,7 @@ describe('Demo Express Server', () => {
   describe('POST /auth/refresh', () => {
     it('issues a new access token when refreshToken cookie is valid', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -288,7 +289,7 @@ describe('Demo Express Server', () => {
     });
 
     it('returns 401 with no refresh token', async () => {
-      const res = await request(app).post('/auth/refresh');
+      const res = await request(await listen(app)).post('/auth/refresh');
       expect(res.status).toBe(401);
     });
   });
@@ -298,7 +299,7 @@ describe('Demo Express Server', () => {
   describe('POST /auth/logout', () => {
     it('clears auth cookies on logout', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/logout')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -309,9 +310,9 @@ describe('Demo Express Server', () => {
 
     it('GET /auth/me returns 403 after logout', async () => {
       const { cookies } = await registerAndLogin(app);
-      const logoutRes = await request(app).post('/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
       const loggedOutCookies = logoutRes.headers['set-cookie'] as string[];
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/me')
         .set('Cookie', loggedOutCookies);
       expect(res.status).toBe(403);
@@ -322,18 +323,18 @@ describe('Demo Express Server', () => {
 
   describe('Admin panel', () => {
     it('GET /admin redirects or returns HTML without auth', async () => {
-      const res = await request(app).get('/admin');
+      const res = await request(await listen(app)).get('/admin');
       expect([401, 302, 200]).toContain(res.status);
     });
 
     it('GET /admin/api/users returns 401 without admin credentials', async () => {
-      const res = await request(app).get('/admin/api/users');
+      const res = await request(await listen(app)).get('/admin/api/users');
       expect(res.status).toBe(401);
     });
 
     it('GET /admin/api/users lists users with valid admin credentials', async () => {
-      await request(app).post('/auth/register').send({ email: 'bob@example.com', password: 'pass123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'bob@example.com', password: 'pass123' });
+      const res = await request(await listen(app))
         .get('/admin/api/users')
         .set('Authorization', `Bearer ${DEMO_ADMIN_SECRET}`);
       expect(res.status).toBe(200);
@@ -341,7 +342,7 @@ describe('Demo Express Server', () => {
     });
 
     it('GET /admin/api/users with wrong admin secret returns 403', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/users')
         .set('Authorization', 'Bearer wrongsecret');
       expect(res.status).toBe(403);
@@ -353,29 +354,29 @@ describe('Demo Express Server', () => {
   describe('Full auth flow', () => {
     it('register → login → GET /auth/me → logout → GET /auth/me returns 403', async () => {
       // 1. Register
-      const regRes = await request(app)
+      const regRes = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'carol@example.com', password: 'pass123' });
       expect(regRes.status).toBe(201);
 
       // 2. Login
-      const loginRes = await request(app)
+      const loginRes = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'carol@example.com', password: 'pass123' });
       expect(loginRes.status).toBe(200);
       const cookies = loginRes.headers['set-cookie'] as string[];
 
       // 3. Access protected route
-      const meRes = await request(app).get('/auth/me').set('Cookie', cookies);
+      const meRes = await request(await listen(app)).get('/auth/me').set('Cookie', cookies);
       expect(meRes.status).toBe(200);
       expect(meRes.body.email).toBe('carol@example.com');
 
       // 4. Logout
-      const logoutRes = await request(app).post('/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
       expect(logoutRes.status).toBe(200);
 
       // 5. Protected route now returns 403
-      const afterLogout = await request(app)
+      const afterLogout = await request(await listen(app))
         .get('/auth/me')
         .set('Cookie', logoutRes.headers['set-cookie'] as string[]);
       expect(afterLogout.status).toBe(403);

@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { ILinkedAccountsStore, LinkedAccount } from '../src/interfaces/linked-accounts-store.interface';
@@ -74,7 +75,7 @@ describe('POST /auth/magic-link/verify — email verification on first login', (
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/magic-link/verify')
       .send({ token: 'valid-magic-token' });
     expect(res.status).toBe(200);
@@ -96,7 +97,7 @@ describe('POST /auth/magic-link/verify — email verification on first login', (
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/magic-link/verify')
       .send({ token: 'valid-magic-token' });
     expect(res.status).toBe(200);
@@ -108,7 +109,7 @@ describe('POST /auth/magic-link/verify — email verification on first login', (
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/magic-link/verify')
       .send({ token: 'valid-magic-token' });
     expect(res.status).toBe(200);
@@ -142,7 +143,7 @@ describe('POST /auth/2fa/disable', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/2fa/disable')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -157,7 +158,7 @@ describe('POST /auth/2fa/disable', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/2fa/disable')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -176,7 +177,7 @@ describe('POST /auth/2fa/disable', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { settingsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/2fa/disable')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -196,7 +197,7 @@ describe('POST /auth/2fa/disable', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { settingsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/2fa/disable')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -245,7 +246,7 @@ describe('Linked accounts endpoints', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(makeStore(), config, { linkedAccountsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/linked-accounts')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -258,7 +259,7 @@ describe('Linked accounts endpoints', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(makeStore(), config, { linkedAccountsStore }));
-    const res = await request(app).get('/auth/linked-accounts');
+    const res = await request(await listen(app)).get('/auth/linked-accounts');
     expect(res.status).toBe(403);
   });
 
@@ -267,7 +268,7 @@ describe('Linked accounts endpoints', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(makeStore(), config, { linkedAccountsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .delete('/auth/linked-accounts/google/g123')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -281,7 +282,7 @@ describe('Linked accounts endpoints', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(makeStore(), config));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/linked-accounts')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer');
@@ -361,7 +362,7 @@ describe('GenericOAuthStrategy', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config, { oauthStrategies: [discordStrategy] }));
     // The route should exist (redirect to Discord), not 404
-    const res = await request(app).get('/auth/oauth/discord');
+    const res = await request(await listen(app)).get('/auth/oauth/discord');
     expect(res.status).toBe(302);
     expect(res.headers['location']).toContain('discord.com');
   });
@@ -413,7 +414,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, cfgWithEmail, { linkedAccountsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer')
@@ -435,7 +436,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer')
@@ -450,7 +451,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .send({ email: 'secondary@example.com' });
     expect(res.status).toBe(401);
@@ -475,7 +476,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(storeNoLink, config, { linkedAccountsStore }));
     const token = makeToken('u1');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer')
@@ -498,7 +499,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: linkToken });
     expect(res.status).toBe(200);
@@ -532,7 +533,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     };
 
     const withLogin = mount(makeUser('link-token-login'));
-    const res = await request(withLogin.app)
+    const res = await request(await listen(withLogin.app))
       .post('/auth/link-verify')
       .set('X-Auth-Strategy', 'bearer')
       .send({ token: 'link-token-login', loginAfterLinking: true });
@@ -544,7 +545,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     expect(logins[0].data).toEqual({ method: 'link-verify' });
 
     const linkOnly = mount(makeUser('link-token-only'));
-    const res2 = await request(linkOnly.app).post('/auth/link-verify').send({ token: 'link-token-only' });
+    const res2 = await request(await listen(linkOnly.app)).post('/auth/link-verify').send({ token: 'link-token-only' });
     expect(res2.status).toBe(200);
     expect(linkOnly.seen.filter((e) => e.event === AuthEventNames.AUTH_LOGIN_SUCCESS)).toHaveLength(0);
   });
@@ -561,7 +562,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: 'wrong-token' });
     expect(res.status).toBe(400);
@@ -581,7 +582,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: linkToken });
     expect(res.status).toBe(400);
@@ -594,7 +595,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-verify')
       .send({});
     expect(res.status).toBe(400);
@@ -608,13 +609,13 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const token = makeToken('u1');
-    const reqRes = await request(app)
+    const reqRes = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Auth-Strategy', 'bearer')
       .send({ email: 'secondary@example.com' });
     expect(reqRes.status).toBe(404);
-    const verRes = await request(app)
+    const verRes = await request(await listen(app))
       .post('/auth/link-verify')
       .send({ token: 'some-token' });
     expect(verRes.status).toBe(404);
@@ -637,7 +638,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, cfgWithEmail, { linkedAccountsStore, pendingLinkStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .send({ email: 'conflict@example.com', provider: 'github' });
     expect(res.status).toBe(200);
@@ -659,7 +660,7 @@ describe('POST /auth/link-request and POST /auth/link-verify', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { linkedAccountsStore, pendingLinkStore }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .send({ email: 'conflict@example.com', provider: 'github' });
     expect(res.status).toBe(401);
@@ -718,7 +719,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     app.use('/auth', createAuthRouter(store, mobileOAuthConfig, {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
-    const res = await request(app).get('/auth/oauth/discord');
+    const res = await request(await listen(app)).get('/auth/oauth/discord');
     expect(res.status).toBe(302);
     expect(res.headers['location']).toContain('discord.com/api/oauth2/authorize');
     expect(res.headers['location']).toContain('client_id=client-id');
@@ -739,7 +740,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
     const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
@@ -767,7 +768,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
     const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
@@ -803,7 +804,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
     }));
 
     const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
 
@@ -837,7 +838,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
 
     // Step 1: OAuth callback → server redirects to siteUrl/auth/2fa?tempToken=...
     const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
-    const callbackRes = await request(app)
+    const callbackRes = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(callbackRes.status).toBe(302);
@@ -848,7 +849,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
 
     // Step 2: Mobile app extracts tempToken and verifies TOTP via bearer flow
     const totpCode = await totp.generate({ secret: totpSecret });
-    const verifyRes = await request(app)
+    const verifyRes = await request(await listen(app))
       .post('/auth/2fa/verify')
       .set('X-Auth-Strategy', 'bearer')
       .send({ tempToken, totpCode });
@@ -881,7 +882,7 @@ describe('OAuth mobile flow (siteUrl = custom scheme, bearer 2FA completion)', (
       linkedAccountsStore,
     }));
     const state = encodeOAuthState('xyz', mobileSiteUrl, undefined, undefined, mobileOAuthConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${state}`)
       .set('Cookie', 'oauth_nonce_discord=xyz');
     expect(res.status).toBe(302);
@@ -938,7 +939,7 @@ describe('Dynamic CORS and siteUrl', () => {
     app.use('/auth', createAuthRouter(store, multiOriginConfig, {
       cors: { origins: ['https://app.example.com', 'https://admin.example.com'] },
     }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .options('/auth/login')
       .set('Origin', 'https://app.example.com');
     expect(res.status).toBe(204);
@@ -953,7 +954,7 @@ describe('Dynamic CORS and siteUrl', () => {
     app.use('/auth', createAuthRouter(store, multiOriginConfig, {
       cors: { origins: ['https://app.example.com'] },
     }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .options('/auth/login')
       .set('Origin', 'https://evil.example.com');
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
@@ -971,7 +972,7 @@ describe('Dynamic CORS and siteUrl', () => {
     app.use('/auth', createAuthRouter(store, multiOriginConfig, {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/oauth/discord')
       .set('Origin', 'https://app.example.com');
     expect(res.status).toBe(302);
@@ -999,7 +1000,7 @@ describe('Dynamic CORS and siteUrl', () => {
     }));
     // Encode state with admin origin (second allowed origin)
     const encodedState = encodeOAuthState('abc123', 'https://admin.example.com', undefined, undefined, multiOriginConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=xyz&state=${encodedState}`)
       .set('Cookie', 'oauth_nonce_discord=abc123');
     expect(res.status).toBe(302);
@@ -1022,7 +1023,7 @@ describe('Dynamic CORS and siteUrl', () => {
     }));
     // State contains an origin NOT in the allowlist
     const maliciousState = encodeOAuthState('abc123', 'https://evil.example.com', undefined, undefined, multiOriginConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=xyz&state=${maliciousState}`)
       .set('Cookie', 'oauth_nonce_discord=abc123');
     expect(res.status).toBe(302);
@@ -1047,7 +1048,7 @@ describe('Dynamic CORS and siteUrl', () => {
       oauthStrategies: [new DiscordStrategy(discordCfg)],
     }));
     const encodedState = encodeOAuthState('plainNonce', 'https://single.example.com', undefined, undefined, singleConfig.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=xyz&state=${encodedState}`)
       .set('Cookie', 'oauth_nonce_discord=plainNonce');
     expect(res.status).toBe(302);

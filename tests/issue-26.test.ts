@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express, { Express } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { AuthConfigurator } from '../src/auth-configurator';
 import { createAdminRouter } from '../src/router/admin.router';
 import { createAuthRouter, performSendVerificationEmail } from '../src/router/auth.router';
@@ -74,7 +75,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
       const app = express();
       app.use('/admin', adminRouter);
 
-      const res = await request(app).delete('/admin/api/users/non-existent-user-id');
+      const res = await request(await listen(app)).delete('/admin/api/users/non-existent-user-id');
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('User not found');
@@ -102,7 +103,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
       const app = express();
       app.use('/admin', adminRouter);
 
-      const res = await request(app).delete(`/admin/api/users/${existingUser.id}`);
+      const res = await request(await listen(app)).delete(`/admin/api/users/${existingUser.id}`);
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('Cannot delete user with active billing subscription');
@@ -133,7 +134,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
       const app = express();
       app.use('/admin', adminRouter);
 
-      const res = await request(app).delete(`/admin/api/users/${existingUser.id}`);
+      const res = await request(await listen(app)).delete(`/admin/api/users/${existingUser.id}`);
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Internal server error');
@@ -153,13 +154,13 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
       app.use('/admin', adminRouter);
 
       // DELETE /api/users/:id
-      const res1 = await request(app).delete(`/admin/api/users/${u1.id}`);
+      const res1 = await request(await listen(app)).delete(`/admin/api/users/${u1.id}`);
       expect(res1.status).toBe(200);
       expect(res1.body.success).toBe(true);
       expect(await userStore.findById(u1.id)).toBeNull();
 
       // DELETE /users/:id (alias)
-      const res2 = await request(app).delete(`/admin/users/${u2.id}`);
+      const res2 = await request(await listen(app)).delete(`/admin/users/${u2.id}`);
       expect(res2.status).toBe(200);
       expect(res2.body.success).toBe(true);
       expect(await userStore.findById(u2.id)).toBeNull();
@@ -228,7 +229,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
         isEmailVerified: false,
       });
 
-      const res = await request(app).post(`/admin/api/users/${user.id}/send-verification-email`);
+      const res = await request(await listen(app)).post(`/admin/api/users/${user.id}/send-verification-email`);
       expect(res.status).toBe(200);
       expect(sentLink).toContain('https://example.com/api/auth/verify-email?token=');
     });
@@ -286,7 +287,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
         isEmailVerified: false,
       });
 
-      const res = await request(app).post(`/admin/api/users/${user.id}/send-verification-email`);
+      const res = await request(await listen(app)).post(`/admin/api/users/${user.id}/send-verification-email`);
       expect(res.status).toBe(501);
       expect(res.body.error).toBe('Email verification mailer is not configured');
     });
@@ -338,7 +339,7 @@ describe('Issue #26 Acceptance Criteria Verification', () => {
         isEmailVerified: false,
       });
 
-      const res = await request(app).post('/admin/api/users/alice%40example.com/send-verification-email');
+      const res = await request(await listen(app)).post('/admin/api/users/alice%40example.com/send-verification-email');
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);

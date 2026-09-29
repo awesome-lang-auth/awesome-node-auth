@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { AuthConfigurator } from '../src/auth-configurator';
 import { createAdminRouter } from '../src/router/admin.router';
 import { AuthConfig } from '../src/models/auth-config.model';
@@ -77,12 +78,12 @@ describe('DX improvements', () => {
       },
     }));
 
-    const loginRes = await request(app)
+    const loginRes = await request(await listen(app))
       .post('/auth/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     expect(loginRes.status).toBe(200);
 
-    const pingRes = await request(app)
+    const pingRes = await request(await listen(app))
       .get('/auth/admin/api/ping')
       .set('Cookie', (loginRes.headers['set-cookie'] as string[]).map((cookie) => cookie.split(';')[0]).join('; '));
     expect(pingRes.status).toBe(200);
@@ -117,7 +118,7 @@ describe('DX improvements', () => {
     }));
 
     const token = tokenService.generateTokenPair({ sub: adminUser.id, email: adminUser.email }, config).accessToken;
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/ping')
       .set('Cookie', `accessToken=${token}`);
 
@@ -224,7 +225,7 @@ describe('DX improvements', () => {
       silent: true,
     }));
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/users/user-9/promote')
       .send({});
 
@@ -244,7 +245,8 @@ describe('DX improvements', () => {
       silent: true,
     }));
     const token = tokenService.generateTokenPair({ sub: adminUser.id, email: adminUser.email }, config).accessToken;
-    const promote = () => request(app).post('/admin/users/user-9/promote').set('Cookie', `accessToken=${token}`);
+    const server = await listen(app);
+    const promote = () => request(server).post('/admin/users/user-9/promote').set('Cookie', `accessToken=${token}`);
 
     const form = await promote().set('Content-Type', 'application/x-www-form-urlencoded').send('');
     const text = await promote().set('Content-Type', 'text/plain').send('{"method":"role"}');

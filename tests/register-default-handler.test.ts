@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { createAuthRouter, RouterOptions } from '../src/router/auth.router';
 import { AuthConfig } from '../src/models/auth-config.model';
@@ -55,7 +56,7 @@ describe('built-in register handler (defaultRegister)', () => {
     const before = structuredClone(await store.findById(existing.id));
     const app = buildApp(store, { defaultRegister: true });
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({
         email: 'eve@x.test',
@@ -100,7 +101,7 @@ describe('built-in register handler (defaultRegister)', () => {
     expect(await store.findById(existing.id)).toEqual(before);
 
     // The new account is a normal, unverified user with its own id.
-    const login = await request(app)
+    const login = await request(await listen(app))
       .post('/auth/login')
       .set('X-Auth-Strategy', 'bearer')
       .send({ email: 'eve@x.test', password: 'eve-pass-123' });
@@ -117,13 +118,13 @@ describe('built-in register handler (defaultRegister)', () => {
     const createSpy = vi.spyOn(store, 'create');
     const app = buildApp(store, { swagger: true });
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'eve@x.test', password: 'eve-pass-123', isAdmin: true });
 
     expect(res.status).toBe(404);
     expect(createSpy).not.toHaveBeenCalled();
-    const spec = await request(app).get('/auth/openapi.json');
+    const spec = await request(await listen(app)).get('/auth/openapi.json');
     expect(spec.body.paths['/auth/register']).toBeUndefined();
     expect(stderrSpy).not.toHaveBeenCalledWith(expect.stringContaining('POST /register'));
   });
@@ -134,7 +135,7 @@ describe('built-in register handler (defaultRegister)', () => {
     const store = new InMemoryUserStore();
 
     // Built-in handler.
-    const first = await request(buildApp(store, { defaultRegister: true }, config))
+    const first = await request(await listen(buildApp(store, { defaultRegister: true }, config)))
       .post('/auth/register')
       .send({ email: 'a@x.test', password: 'secret-a', firstName: 'A' });
     expect(first.status).toBe(201);
@@ -142,7 +143,7 @@ describe('built-in register handler (defaultRegister)', () => {
 
     // Custom onRegister: it still receives the raw body; sendWelcome gets the same data minus `password`.
     const onRegister = vi.fn(async (data: Record<string, unknown>) => store.create({ email: data['email'] as string }));
-    const second = await request(buildApp(store, { onRegister }, config))
+    const second = await request(await listen(buildApp(store, { onRegister }, config)))
       .post('/auth/register')
       .send({ email: 'b@x.test', password: 'secret-b', plan: 'pro' });
     expect(second.status).toBe(201);
@@ -161,7 +162,7 @@ describe('built-in register handler (defaultRegister)', () => {
     const createSpy = vi.spyOn(store, 'create');
     const app = buildApp(store, { defaultRegister: true });
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'victim@x.test', password: 'attacker-pass', firstName: 'Mallory' });
 
@@ -172,10 +173,10 @@ describe('built-in register handler (defaultRegister)', () => {
     expect((await store.listUsers(100, 0)).filter((u) => u.email === 'victim@x.test')).toHaveLength(1);
 
     // The owner still signs in with the original password; the attacker's is refused.
-    const owner = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+    const owner = await request(await listen(app)).post('/auth/login').set('X-Auth-Strategy', 'bearer')
       .send({ email: 'victim@x.test', password: 'victim-pass' });
     expect(owner.status).toBe(200);
-    const attacker = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+    const attacker = await request(await listen(app)).post('/auth/login').set('X-Auth-Strategy', 'bearer')
       .send({ email: 'victim@x.test', password: 'attacker-pass' });
     expect(attacker.status).toBe(401);
   });
@@ -190,13 +191,13 @@ describe('built-in register handler (defaultRegister)', () => {
     await store.create({ email: 'victim@x.test', password: await passwordService.hash('victim-pass') });
     const app = buildApp(store, { defaultRegister: true });
 
-    const res = await request(app).post('/auth/register').send({ email: 'victim@x.test', password: 'attacker-pass' });
+    const res = await request(await listen(app)).post('/auth/register').send({ email: 'victim@x.test', password: 'attacker-pass' });
     expect(res.status).toBe(409);
 
-    const attacker = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+    const attacker = await request(await listen(app)).post('/auth/login').set('X-Auth-Strategy', 'bearer')
       .send({ email: 'victim@x.test', password: 'attacker-pass' });
     expect(attacker.status).toBe(401);
-    const owner = await request(app).post('/auth/login').set('X-Auth-Strategy', 'bearer')
+    const owner = await request(await listen(app)).post('/auth/login').set('X-Auth-Strategy', 'bearer')
       .send({ email: 'victim@x.test', password: 'victim-pass' });
     expect(owner.status).toBe(200);
   });
@@ -214,11 +215,11 @@ describe('built-in register handler (defaultRegister)', () => {
       { email: { $ne: null }, password: 'secret' },
     ];
     for (const body of bodies) {
-      const res = await request(app).post('/auth/register').send(body);
+      const res = await request(await listen(app)).post('/auth/register').send(body);
       expect(res.status).toBe(400);
       expect(res.text).toBe('{"error":"Email and password are required","code":"INVALID_INPUT"}');
     }
-    const noBody = await request(app).post('/auth/register');
+    const noBody = await request(await listen(app)).post('/auth/register');
     expect(noBody.status).toBe(400);
     expect(noBody.text).toBe('{"error":"Email and password are required","code":"INVALID_INPUT"}');
     expect(createSpy).not.toHaveBeenCalled();
@@ -227,7 +228,7 @@ describe('built-in register handler (defaultRegister)', () => {
   it('onRegister takes precedence over defaultRegister', async () => {
     const store = new InMemoryUserStore();
     const onRegister = vi.fn(async (data: Record<string, unknown>) => store.create({ email: data['email'] as string }));
-    const res = await request(buildApp(store, { onRegister, defaultRegister: true }))
+    const res = await request(await listen(buildApp(store, { onRegister, defaultRegister: true })))
       .post('/auth/register')
       .send({ email: 'c@x.test', password: 'secret-c' });
     expect(res.status).toBe(201);
@@ -238,7 +239,7 @@ describe('built-in register handler (defaultRegister)', () => {
   it('writes a WARN line and does not mount the route when defaultRegister is set but userStore.create is missing', async () => {
     const store = new InMemoryUserStore() as unknown as Record<string, unknown>;
     store['create'] = undefined;
-    const res = await request(buildApp(store as unknown as IUserStore, { defaultRegister: true }))
+    const res = await request(await listen(buildApp(store as unknown as IUserStore, { defaultRegister: true })))
       .post('/auth/register')
       .send({ email: 'd@x.test', password: 'secret-d' });
     expect(res.status).toBe(404);

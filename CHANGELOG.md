@@ -3,6 +3,16 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Tests
+- **Supertest servers bound to `127.0.0.1`**: fixes the intermittent unexpected 401 and `Parse Error: Expected HTTP/, RTSP/ or ICE/` in the test suite.
+  - **Cause:** with a bare Express app, `supertest(app)` listens on `::` but connects to `127.0.0.1`, so on macOS another local process bound to `127.0.0.1` on the same ephemeral port could answer.
+  - **Fix:** the new `tests/helpers/listen.ts` starts the app on `127.0.0.1:0`, waits for `listening`, and closes the server after the test (or after the file). Every `request(app)` in `tests/` now uses `request(await listen(app))`; assertions are unchanged.
+  - No library code changed.
+
+---
+
 ## [1.10.7] — 2026-09-28
 
 ### Added

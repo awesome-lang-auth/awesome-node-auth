@@ -13,6 +13,7 @@ import type { ISettingsStore, AuthSettings } from '../src/interfaces/settings-st
 import type { ISseDistributor } from '../src/interfaces/sse-distributor.interface';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 // ---------------------------------------------------------------------------
 // AuthEventBus
@@ -447,33 +448,33 @@ describe('createToolsRouter — swagger routes', () => {
 
   it('serves GET /tools/openapi.json when swagger=true', async () => {
     const app = buildApp(true);
-    const res = await request(app).get('/tools/openapi.json');
+    const res = await request(await listen(app)).get('/tools/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.openapi).toBe('3.0.3');
   });
 
   it('serves GET /tools/docs HTML when swagger=true', async () => {
     const app = buildApp(true);
-    const res = await request(app).get('/tools/docs');
+    const res = await request(await listen(app)).get('/tools/docs');
     expect(res.status).toBe(200);
     expect(res.text).toContain('swagger-ui');
   });
 
   it('returns 404 for /tools/openapi.json when swagger=false', async () => {
     const app = buildApp(false);
-    const res = await request(app).get('/tools/openapi.json');
+    const res = await request(await listen(app)).get('/tools/openapi.json');
     expect(res.status).toBe(404);
   });
 
   it('enables swagger in development when swagger=auto', async () => {
     const app = buildApp('auto', 'development');
-    const res = await request(app).get('/tools/openapi.json');
+    const res = await request(await listen(app)).get('/tools/openapi.json');
     expect(res.status).toBe(200);
   });
 
   it('disables swagger in production when swagger=auto', async () => {
     const app = buildApp('auto', 'production');
-    const res = await request(app).get('/tools/openapi.json');
+    const res = await request(await listen(app)).get('/tools/openapi.json');
     expect(res.status).toBe(404);
   });
 });
@@ -584,7 +585,7 @@ describe('createToolsRouter — vm sandbox inbound webhook', () => {
     const tracked: string[] = [];
     const tools = (app as unknown as { _tools?: AuthTools })._tools;
     // Use supertest to fire the inbound webhook
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/tools/webhook/test-provider')
       .send({ name: 'Alice' });
     expect(res.status).toBe(200);
@@ -610,7 +611,7 @@ describe('createToolsRouter — vm sandbox inbound webhook', () => {
       jsScript: `actions['my.action'](body.id); result = { event: 'identity.user.deleted', data: null };`,
     };
     const app = buildVmApp(config, { enabledWebhookActions: ['my.action'] });
-    await request(app).post('/tools/webhook/act-provider').send({ id: 'u-99' });
+    await request(await listen(app)).post('/tools/webhook/act-provider').send({ id: 'u-99' });
     expect(called).toContain('u-99');
   });
 
@@ -634,7 +635,7 @@ describe('createToolsRouter — vm sandbox inbound webhook', () => {
     };
     // disabled globally (enabledWebhookActions = [])
     const app = buildVmApp(config, { enabledWebhookActions: [] });
-    await request(app).post('/tools/webhook/disabled-provider').send({});
+    await request(await listen(app)).post('/tools/webhook/disabled-provider').send({});
     expect(called).toHaveLength(0);
   });
 
@@ -656,7 +657,7 @@ describe('createToolsRouter — vm sandbox inbound webhook', () => {
       onWebhook: async () => ({ event: 'identity.auth.login.success', data: null }),
     }));
 
-    const res = await request(app).post('/tools/webhook/fallback-provider').send({});
+    const res = await request(await listen(app)).post('/tools/webhook/fallback-provider').send({});
     expect(res.status).toBe(200);
     expect(tracked).toContain('identity.auth.login.success');
   });
@@ -676,7 +677,7 @@ describe('createToolsRouter — vm sandbox inbound webhook', () => {
       jsScript: `try { (void 0).x; } catch(e) { /* handled */ } result = null;`,
     };
     const app = buildVmApp(config, {});
-    const res = await request(app).post('/tools/webhook/err-provider').send({});
+    const res = await request(await listen(app)).post('/tools/webhook/err-provider').send({});
     expect(res.status).toBe(200);
   });
 });

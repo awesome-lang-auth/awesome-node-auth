@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import * as crypto from 'crypto';
 import { createAuthRouter } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
@@ -118,7 +119,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
       // 1. Device A logs in
-      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resA = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       expect(resA.status).toBe(200);
       const cookiesA = parseCookies(resA);
       const refreshA = cookiesA['refreshToken'];
@@ -133,7 +134,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionA?.refreshTokenHash).toBe(expectedHashA);
 
       // 2. Device B logs in
-      const resB = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resB = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       expect(resB.status).toBe(200);
       const cookiesB = parseCookies(resB);
       const refreshB = cookiesB['refreshToken'];
@@ -149,7 +150,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionStore.sessions.size).toBe(2);
 
       // 3. Device A refreshes tokens
-      const refreshResA = await request(app)
+      const refreshResA = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', `refreshToken=${refreshA}`);
       expect(refreshResA.status).toBe(200);
@@ -169,7 +170,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(newSessionA?.refreshTokenHash).toBe(crypto.createHash('sha256').update(newRefreshA).digest('hex'));
 
       // 4. Device B refreshes tokens independently
-      const refreshResB = await request(app)
+      const refreshResB = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', `refreshToken=${refreshB}`);
       expect(refreshResB.status).toBe(200);
@@ -185,7 +186,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       const newSessionHandleB = newPayloadB.sid!;
 
       // 5. Device A logs out
-      const logoutResA = await request(app)
+      const logoutResA = await request(await listen(app))
         .post('/auth/logout')
         .set('Cookie', `accessToken=${newCookiesA['accessToken']}; refreshToken=${newRefreshA}`);
       expect(logoutResA.status).toBe(200);
@@ -196,14 +197,14 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionStore.sessions.has(newSessionHandleB)).toBe(true);
 
       // 6. Device B can still refresh
-      const refreshResB2 = await request(app)
+      const refreshResB2 = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', `refreshToken=${newRefreshB}`);
       expect(refreshResB2.status).toBe(200);
 
       // 7. Device B logs out
       const cookiesB2 = parseCookies(refreshResB2);
-      const logoutResB = await request(app)
+      const logoutResB = await request(await listen(app))
         .post('/auth/logout')
         .set('Cookie', `accessToken=${cookiesB2['accessToken']}; refreshToken=${cookiesB2['refreshToken']}`);
       expect(logoutResB.status).toBe(200);
@@ -219,7 +220,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
       // Device A logs in
-      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resA = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const cookiesA = parseCookies(resA);
       const refreshA = cookiesA['refreshToken'];
       const payloadA = tokenService.verifyRefreshToken(refreshA, config);
@@ -229,7 +230,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(session).not.toBeNull();
       session!.refreshTokenHash = 'wrong-hash';
 
-      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
       expect(res.status).toBe(401);
       expect(res.body.error).toBe('Invalid refresh token');
     });
@@ -247,7 +248,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use('/auth', createAuthRouter(userStore, singleSessionConfig, { sessionStore }));
 
       // 1. Device A logs in
-      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resA = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       expect(resA.status).toBe(200);
       const cookiesA = parseCookies(resA);
       const refreshA = cookiesA['refreshToken'];
@@ -256,7 +257,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionStore.sessions.has(sessionHandleA)).toBe(true);
 
       // 2. Device B logs in with same user credentials
-      const resB = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resB = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       expect(resB.status).toBe(200);
       const cookiesB = parseCookies(resB);
       const refreshB = cookiesB['refreshToken'];
@@ -270,14 +271,14 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       expect(sessionStore.sessions.size).toBe(1);
 
       // 3. Device A tries to refresh -> rejected because session was revoked
-      const refreshResA = await request(app)
+      const refreshResA = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', `refreshToken=${refreshA}`);
       expect(refreshResA.status).toBe(401);
       expect(refreshResA.body.code).toBe('SESSION_REVOKED');
 
       // 4. Device B can refresh successfully
-      const refreshResB = await request(app)
+      const refreshResB = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', `refreshToken=${refreshB}`);
       expect(refreshResB.status).toBe(200);
@@ -294,13 +295,13 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use('/auth', createAuthRouter(userStore, singleSessionAliasConfig, { sessionStore }));
 
       // Device A logs in
-      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resA = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const cookiesA = parseCookies(resA);
       const refreshA = cookiesA['refreshToken'];
       const handleA = tokenService.verifyRefreshToken(refreshA, config).sid!;
 
       // Device B logs in
-      await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
 
       // Device A session must be revoked
       expect(sessionStore.sessions.has(handleA)).toBe(false);
@@ -314,7 +315,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use(express.json());
       app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
-      await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       // Verify updateRefreshToken was never called with a non-null token
       for (const call of (userStore.updateRefreshToken as any).mock.calls) {
         expect(call[1]).toBeNull();
@@ -330,16 +331,16 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use(express.json());
       app.use('/auth', createAuthRouter(userStore, noneConfig, { sessionStore }));
 
-      const loginRes = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const loginRes = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const cookies = parseCookies(loginRes);
       const refresh = cookies['refreshToken'];
 
       // Rotate session via refresh
-      const refRes1 = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      const refRes1 = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
       expect(refRes1.status).toBe(200);
 
       // Replaying the old (now revoked) refresh token must return 401 SESSION_REVOKED even with checkOn: none
-      const refRes2 = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      const refRes2 = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
       expect(refRes2.status).toBe(401);
       expect(refRes2.body).toEqual({
         error: 'Session has been revoked',
@@ -366,7 +367,7 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
         sid: otherSession.sessionHandle,
       }, config).refreshToken;
 
-      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${maliciousToken}`);
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${maliciousToken}`);
       expect(res.status).toBe(401);
       expect(res.body.error).toBe('Invalid refresh token');
     });
@@ -376,14 +377,14 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use(express.json());
       app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
-      const loginRes = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const loginRes = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const cookies = parseCookies(loginRes);
       const refresh = cookies['refreshToken'];
 
       // Mock revokeSession to reject
       sessionStore.revokeSession.mockRejectedValueOnce(new Error('Store failure during revoke'));
 
-      const res = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refresh}`);
       expect(res.status).toBe(500);
       expect(res.headers['set-cookie']).toBeUndefined();
     });
@@ -432,25 +433,25 @@ describe('Issue #13: Multi-device sessions and refresh tokens', () => {
       app.use('/auth', createAuthRouter(userStore, config, { sessionStore: plainStore }));
 
       // Login A
-      const resA = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resA = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const refreshA = parseCookies(resA)['refreshToken'];
       // Login B
-      const resB = await request(app).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
+      const resB = await request(await listen(app)).post('/auth/login').send({ email: 'device@test.com', password: 'secure-password' });
       const refreshB = parseCookies(resB)['refreshToken'];
 
       expect(plainStore.sessions.size).toBe(2);
 
       // Refresh A
-      const refA = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
+      const refA = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
       expect(refA.status).toBe(200);
 
       // Old A replay fails
-      const replayA = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
+      const replayA = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refreshA}`);
       expect(replayA.status).toBe(401);
       expect(replayA.body.code).toBe('SESSION_REVOKED');
 
       // Refresh B still works
-      const refB = await request(app).post('/auth/refresh').set('Cookie', `refreshToken=${refreshB}`);
+      const refB = await request(await listen(app)).post('/auth/refresh').set('Cookie', `refreshToken=${refreshB}`);
       expect(refB.status).toBe(200);
     });
   });

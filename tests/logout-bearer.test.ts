@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { AuthConfig } from '../src/models/auth-config.model';
 import { SessionInfo } from '../src/models/session.model';
@@ -65,7 +66,7 @@ describe.each([
   });
 
   async function bearerLogin(): Promise<{ accessToken: string; refreshToken: string }> {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/login')
       .set('X-Auth-Strategy', 'bearer')
       .send({ email: 'user@example.com', password: 'pw' });
@@ -73,7 +74,7 @@ describe.each([
     return res.body;
   }
 
-  const refresh = (refreshToken: string) => request(app)
+  const refresh = async (refreshToken: string) => request(await listen(app))
     .post('/auth/refresh')
     .set('X-Auth-Strategy', 'bearer')
     .send({ refreshToken });
@@ -81,7 +82,7 @@ describe.each([
   it('the Authorization: Bearer access token ends the session: the refresh token is refused afterwards', async () => {
     const { accessToken, refreshToken } = await bearerLogin();
 
-    const logout = await request(app).post('/auth/logout').set('Authorization', `Bearer ${accessToken}`).send({});
+    const logout = await request(await listen(app)).post('/auth/logout').set('Authorization', `Bearer ${accessToken}`).send({});
     expect(logout.status).toBe(200);
     expect(logout.body).toEqual({ success: true });
 
@@ -95,7 +96,7 @@ describe.each([
   it('a refreshToken in the body alone ends the session', async () => {
     const { refreshToken } = await bearerLogin();
 
-    const logout = await request(app).post('/auth/logout').send({ refreshToken });
+    const logout = await request(await listen(app)).post('/auth/logout').send({ refreshToken });
     expect(logout.status).toBe(200);
 
     expect((await refresh(refreshToken)).status).toBe(401);
@@ -119,7 +120,7 @@ describe.each([
     expect(rotated.status).toBe(200);
     expect(rotated.body.refreshToken).not.toBe(first.refreshToken);
 
-    const logout = await request(app).post('/auth/logout').send({ refreshToken: first.refreshToken });
+    const logout = await request(await listen(app)).post('/auth/logout').send({ refreshToken: first.refreshToken });
     expect(logout.status).toBe(200);
     expect(events[0].userId).toBeUndefined();
 
@@ -128,7 +129,7 @@ describe.each([
 
   it('an invalid bearer token still answers 200 and ends nothing', async () => {
     const { refreshToken } = await bearerLogin();
-    const logout = await request(app).post('/auth/logout').set('Authorization', 'Bearer not-a-jwt').send({});
+    const logout = await request(await listen(app)).post('/auth/logout').set('Authorization', 'Bearer not-a-jwt').send({});
     expect(logout.status).toBe(200);
     expect((await refresh(refreshToken)).status).toBe(200);
   });
@@ -144,9 +145,9 @@ describe('POST /logout in cookie mode', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
-    const login = await request(app).post('/auth/login').send({ email: 'user@example.com', password: 'pw' });
+    const login = await request(await listen(app)).post('/auth/login').send({ email: 'user@example.com', password: 'pw' });
     const cookies = (login.headers['set-cookie'] as unknown as string[]).map((c) => c.split(';')[0]).join('; ');
-    const logout = await request(app).post('/auth/logout').set('Cookie', cookies);
+    const logout = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
     expect(logout.status).toBe(200);
     expect(revoke).toHaveBeenCalledWith('sid-1');
     expect(sessionStore.sessions.size).toBe(0);

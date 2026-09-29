@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { createAuthRouter } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
@@ -39,7 +40,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
       // Notice: NO cookie-parser, so raw Cookie header fallback in tokenService is used
       app.use('/auth', createAuthRouter(userStore, config));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/me')
         .set('Cookie', 'accessToken=%');
 
@@ -56,7 +57,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/ping')
         .set('Cookie', 'accessToken=%; other=%ZZ')
         .set('Accept', 'application/json');
@@ -146,7 +147,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/login')
         .set('Content-Type', 'application/json');
 
@@ -156,7 +157,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/2fa-policy handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/2fa-policy')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -167,7 +168,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/roles handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/roles')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -178,7 +179,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/tenants handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/tenants')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -189,7 +190,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/api-keys handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/api-keys')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -200,7 +201,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/webhooks handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/webhooks')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -211,7 +212,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
 
     it('POST /admin/api/templates/mail handles empty body with 400', async () => {
       const app = createAdminAppWithStores();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/templates/mail')
         .set('Cookie', `accessToken=${adminToken}`)
         .send({});
@@ -230,7 +231,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/users?limit=10&limit=20&offset=0&offset=5&filter=admin&filter=other')
         .set('Cookie', `accessToken=${adminToken}`)
         .set('Accept', 'application/json');
@@ -258,7 +259,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/sessions?limit=5&limit=15&offset=2&offset=10')
         .set('Cookie', `accessToken=${adminToken}`)
         .set('Accept', 'application/json');
@@ -284,7 +285,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/api-keys?limit=10&limit=50&offset=1&offset=20&filter=mykey&filter=other')
         .set('Cookie', `accessToken=${adminToken}`)
         .set('Accept', 'application/json');
@@ -308,7 +309,7 @@ describe('Issue #16: Input robustness and 4xx instead of 500 crashes', () => {
         silent: true,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/admin/api/webhooks?limit=10&limit=30&offset=0&offset=5')
         .set('Cookie', `accessToken=${adminToken}`)
         .set('Accept', 'application/json');

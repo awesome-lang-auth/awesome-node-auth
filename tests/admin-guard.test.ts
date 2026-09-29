@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { createAdminRouter } from '../src/router/admin.router';
 import { InMemoryUserStore } from '../examples/in-memory-user-store';
@@ -38,14 +39,14 @@ describe('admin guard: unauthenticated browser requests', () => {
   it('REGRESSION-ADMIN-GUARD-HTML-ACCEPT: GET <admin>/api/users with Accept: text/html and no credential is 401, and the panel still renders its sign-in form', async () => {
     const app = buildApp(userStore);
 
-    const users = await request(app)
+    const users = await request(await listen(app))
       .get('/admin/api/users')
       .set('Accept', 'text/html,application/xhtml+xml');
     expect(users.status).toBe(401);
     expect(users.body).toEqual({ error: 'Unauthorized' });
     expect(users.text).not.toContain('someone@example.com');
 
-    const panel = await request(app)
+    const panel = await request(await listen(app))
       .get('/admin/')
       .set('Accept', 'text/html');
     expect(panel.status).toBe(200);
@@ -57,7 +58,7 @@ describe('admin guard: unauthenticated browser requests', () => {
   it('every guarded GET under /api answers 401 to an unauthenticated browser request', async () => {
     const app = buildApp(userStore);
     for (const path of ['/admin/api/ping', '/admin/api/users/1', '/admin/api/sessions', '/admin/api/settings', '/admin/api/roles']) {
-      const res = await request(app).get(path).set('Accept', 'text/html');
+      const res = await request(await listen(app)).get(path).set('Accept', 'text/html');
       expect(res.status, path).toBe(401);
       expect(res.body, path).toEqual({ error: 'Unauthorized' });
     }
@@ -66,18 +67,18 @@ describe('admin guard: unauthenticated browser requests', () => {
   it('with loginPath, the panel still redirects to the login page and the API still answers 401', async () => {
     const app = buildApp(userStore, '/login');
 
-    const panel = await request(app).get('/admin/').set('Accept', 'text/html');
+    const panel = await request(await listen(app)).get('/admin/').set('Accept', 'text/html');
     expect(panel.status).toBe(302);
     expect(panel.headers['location']).toBe('/login?redirect=%2Fadmin%2F');
 
-    const users = await request(app).get('/admin/api/users').set('Accept', 'text/html');
+    const users = await request(await listen(app)).get('/admin/api/users').set('Accept', 'text/html');
     expect(users.status).toBe(401);
     expect(users.body).toEqual({ error: 'Unauthorized' });
   });
 
   it('an unauthenticated API request without Accept: text/html is 401, as before', async () => {
     const app = buildApp(userStore);
-    const res = await request(app).get('/admin/api/users').set('Accept', 'application/json');
+    const res = await request(await listen(app)).get('/admin/api/users').set('Accept', 'application/json');
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Unauthorized' });
   });
@@ -91,16 +92,16 @@ describe('admin guard: unauthenticated browser requests', () => {
     for (const token of [legacyRoot, noSubject]) {
       const cookie = `accessToken=${token}`;
 
-      const panel = await request(buildApp(userStore)).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
+      const panel = await request(await listen(buildApp(userStore))).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
       expect(panel.status).toBe(200);
       expect(panel.text).toContain('id="login"');
 
-      const redirected = await request(buildApp(userStore, '/login')).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
+      const redirected = await request(await listen(buildApp(userStore, '/login'))).get('/admin/').set('Cookie', cookie).set('Accept', 'text/html');
       expect(redirected.status).toBe(302);
       expect(redirected.headers['location']).toBe('/login?redirect=%2Fadmin%2F');
 
       for (const accept of ['text/html', 'application/json']) {
-        const api = await request(buildApp(userStore, '/login')).get('/admin/api/ping').set('Cookie', cookie).set('Accept', accept);
+        const api = await request(await listen(buildApp(userStore, '/login'))).get('/admin/api/ping').set('Cookie', cookie).set('Accept', accept);
         expect(api.status, accept).toBe(401);
         expect(api.body, accept).toEqual({ error: 'Unauthorized' });
       }
@@ -110,7 +111,7 @@ describe('admin guard: unauthenticated browser requests', () => {
   it('a resolved user whom the policy refuses still gets 403 on the panel', async () => {
     const user = await userStore.create({ email: 'plain@example.com' });
     const token = jwt.sign({ sub: user.id, email: user.email }, jwtSecret, { expiresIn: '15m' });
-    const panel = await request(buildApp(userStore)).get('/admin/').set('Cookie', `accessToken=${token}`).set('Accept', 'text/html');
+    const panel = await request(await listen(buildApp(userStore))).get('/admin/').set('Cookie', `accessToken=${token}`).set('Accept', 'text/html');
     expect(panel.status).toBe(403);
     expect(panel.body).toEqual({ error: 'Forbidden' });
   });
@@ -153,7 +154,7 @@ describe('createAdminRouter: empty adminSecret', () => {
     // The legacy secret still guards the API.
     const app = express();
     app.use('/admin', createAdminRouter(userStore, { adminSecret: 's3cret', silent: true }));
-    expect((await request(app).get('/admin/api/ping')).status).toBe(401);
-    expect((await request(app).get('/admin/api/ping').set('Authorization', 'Bearer s3cret')).status).toBe(200);
+    expect((await request(await listen(app)).get('/admin/api/ping')).status).toBe(401);
+    expect((await request(await listen(app)).get('/admin/api/ping').set('Authorization', 'Bearer s3cret')).status).toBe(200);
   });
 });

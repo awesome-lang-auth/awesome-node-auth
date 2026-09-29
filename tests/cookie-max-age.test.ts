@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { TokenService } from '../src/services/token.service';
 import { createAuthRouter } from '../src/router/auth.router';
@@ -83,7 +84,7 @@ describe('setTokenCookies: cookie maxAge follows the configured token lifetimes'
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config));
 
-    const res = await request(app).post('/auth/login').send({ email: 'u@example.com', password: 'pw' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'u@example.com', password: 'pw' });
     expect(res.status).toBe(200);
     const setCookie = res.headers['set-cookie'] as unknown as string[];
     const access = setCookie.find((c) => c.startsWith('accessToken='))!;

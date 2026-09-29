@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { BaseUser } from '../src/models/user.model';
@@ -102,7 +103,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         googleStrategy: new TestGoogleStrategy(oauthConfig),
       }));
 
-      const res = await request(app).get('/auth/oauth/google');
+      const res = await request(await listen(app)).get('/auth/oauth/google');
       expect(res.status).toBe(302);
       const location = new URL(res.headers['location'] as string);
       const state = location.searchParams.get('state')!;
@@ -124,12 +125,12 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       }));
 
       // Initiate to get valid state
-      const initRes = await request(app).get('/auth/oauth/google');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google');
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
 
       // Call callback WITHOUT sending the cookie
-      const res = await request(app).get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`);
+      const res = await request(await listen(app)).get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`);
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });
@@ -140,12 +141,12 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         googleStrategy: new TestGoogleStrategy(oauthConfig),
       }));
 
-      const initRes = await request(app).get('/auth/oauth/google');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google');
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
 
       // Call callback with mismatched cookie
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', 'oauth_nonce_google=tampered_or_attacker_nonce');
 
@@ -159,12 +160,12 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         googleStrategy: new TestGoogleStrategy(oauthConfig),
       }));
 
-      const initRes = await request(app).get('/auth/oauth/google');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google');
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
       const { value: cookieNonce } = parseCookieHeader(initRes, 'oauth_nonce_google');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -189,7 +190,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       }));
 
       // 1. Initiate
-      const initRes = await request(app).get('/auth/oauth/github');
+      const initRes = await request(await listen(app)).get('/auth/oauth/github');
       expect(initRes.status).toBe(302);
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
@@ -197,14 +198,14 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       expect(cookieNonce).toBeDefined();
 
       // 2. Mismatched cookie returns 400
-      const badRes = await request(app)
+      const badRes = await request(await listen(app))
         .get(`/auth/oauth/github/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', 'oauth_nonce_github=wrong-nonce');
       expect(badRes.status).toBe(400);
       expect(badRes.body.code).toBe('INVALID_OAUTH_STATE');
 
       // 3. Matching cookie succeeds and clears cookie
-      const goodRes = await request(app)
+      const goodRes = await request(await listen(app))
         .get(`/auth/oauth/github/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_github=${cookieNonce}`);
       expect(goodRes.status).toBe(302);
@@ -223,7 +224,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       }));
 
       // 1. Initiate
-      const initRes = await request(app).get('/auth/oauth/discord');
+      const initRes = await request(await listen(app)).get('/auth/oauth/discord');
       expect(initRes.status).toBe(302);
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
@@ -231,14 +232,14 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       expect(cookieNonce).toBeDefined();
 
       // 2. Mismatched cookie returns 400
-      const badRes = await request(app)
+      const badRes = await request(await listen(app))
         .get(`/auth/oauth/discord/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', 'oauth_nonce_discord=wrong-nonce');
       expect(badRes.status).toBe(400);
       expect(badRes.body.code).toBe('INVALID_OAUTH_STATE');
 
       // 3. Matching cookie succeeds
-      const goodRes = await request(app)
+      const goodRes = await request(await listen(app))
         .get(`/auth/oauth/discord/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_discord=${cookieNonce}`);
       expect(goodRes.status).toBe(302);
@@ -251,7 +252,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
       }));
 
       // Attacker crafts callback URL without state; victim never initiated Google flow (no cookie)
-      const res = await request(app).get('/auth/oauth/google/callback?code=attacker-stolen-code');
+      const res = await request(await listen(app)).get('/auth/oauth/google/callback?code=attacker-stolen-code');
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });
@@ -262,7 +263,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         oauthStrategies: [new TestDiscordStrategy(discordCfg)],
       }));
 
-      const res = await request(app).get('/auth/oauth/discord/callback?code=fake-code&state=xyz');
+      const res = await request(await listen(app)).get('/auth/oauth/discord/callback?code=fake-code&state=xyz');
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });
@@ -273,7 +274,7 @@ describe('Issue #14: OAuth state nonce CSRF protection', () => {
         oauthStrategies: [new TestDiscordStrategy(discordCfg)],
       }));
 
-      const res = await request(app).get('/auth/oauth/discord/callback?code=fake-code');
+      const res = await request(await listen(app)).get('/auth/oauth/discord/callback?code=fake-code');
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('INVALID_OAUTH_STATE');
     });

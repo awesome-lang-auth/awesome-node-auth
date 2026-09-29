@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { AuthConfig } from '../src/models/auth-config.model';
 import { SessionInfo } from '../src/models/session.model';
@@ -48,7 +49,7 @@ async function setup(checkOn: 'allcalls' | 'refresh') {
   app.use(express.json());
   app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
 
-  const login = await request(app)
+  const login = await request(await listen(app))
     .post('/auth/login')
     .set('X-Auth-Strategy', 'bearer')
     .send({ email: 'user@example.com', password: 'pw' });
@@ -66,21 +67,21 @@ describe("auth router: session.checkOn with the router's sessionStore", () => {
     beforeEach(async () => { ctx = await setup('allcalls'); });
 
     it('GET /me with a still-valid access token is 401 SESSION_REVOKED right after the session is revoked', async () => {
-      const before = await request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
+      const before = await request(await listen(ctx.app)).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(before.status).toBe(200);
 
       await ctx.sessionStore.revokeSession(ctx.sid);
 
-      const after = await request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
+      const after = await request(await listen(ctx.app)).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(after.status).toBe(401);
       expect(after.body).toEqual({ error: 'Session has been revoked', code: 'SESSION_REVOKED' });
 
-      const sessions = await request(ctx.app).get('/auth/sessions').set('Authorization', `Bearer ${ctx.accessToken}`);
+      const sessions = await request(await listen(ctx.app)).get('/auth/sessions').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(sessions.status).toBe(401);
     });
 
     it('updates the session last-active timestamp', async () => {
-      await request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
+      await request(await listen(ctx.app)).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(ctx.sessionStore.getSession).toHaveBeenCalledWith(ctx.sid);
       expect(ctx.sessionStore.updateSessionLastActive).toHaveBeenCalledWith(ctx.sid);
     });
@@ -91,13 +92,13 @@ describe("auth router: session.checkOn with the router's sessionStore", () => {
 
     it('GET /me still answers 200 until the next refresh (no per-call lookup)', async () => {
       await ctx.sessionStore.revokeSession(ctx.sid);
-      const res = await request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
+      const res = await request(await listen(ctx.app)).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(res.status).toBe(200);
       expect(ctx.sessionStore.getSession).not.toHaveBeenCalled();
     });
 
     it('updates the session last-active timestamp', async () => {
-      await request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
+      await request(await listen(ctx.app)).get('/auth/me').set('Authorization', `Bearer ${ctx.accessToken}`);
       expect(ctx.sessionStore.updateSessionLastActive).toHaveBeenCalledWith(ctx.sid);
     });
   });

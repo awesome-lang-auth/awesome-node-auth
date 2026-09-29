@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { ApiKeyService } from '../src/services/api-key.service';
 import { ApiKeyStrategy } from '../src/strategies/api-key/api-key.strategy';
 import { createApiKeyMiddleware } from '../src/middleware/api-key.middleware';
@@ -295,7 +296,7 @@ describe('createApiKeyMiddleware', () => {
     const { rawKey, record } = await service.createKey(tempStore, { name: 'svc', scopes: ['r'] });
     const store = makeStore({ findByPrefix: vi.fn().mockResolvedValue(record) });
     const app = await buildApp(store);
-    const res = await request(app).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
+    const res = await request(await listen(app)).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
     expect(res.status).toBe(200);
     expect(res.body.apiKey.keyId).toBe(record.id);
     expect(res.body.apiKey.scopes).toContain('r');
@@ -306,7 +307,7 @@ describe('createApiKeyMiddleware', () => {
     const { rawKey, record } = await service.createKey(tempStore, { name: 'svc' });
     const store = makeStore({ findByPrefix: vi.fn().mockResolvedValue(record) });
     const app = await buildApp(store);
-    const res = await request(app).get('/protected').set('X-Api-Key', rawKey);
+    const res = await request(await listen(app)).get('/protected').set('X-Api-Key', rawKey);
     expect(res.status).toBe(200);
     expect(res.body.apiKey.keyId).toBe(record.id);
   });
@@ -314,7 +315,7 @@ describe('createApiKeyMiddleware', () => {
   it('returns 401 with JSON error when no API key header is provided', async () => {
     const store = makeStore();
     const app = await buildApp(store);
-    const res = await request(app).get('/protected');
+    const res = await request(await listen(app)).get('/protected');
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('API_KEY_MISSING');
   });
@@ -322,7 +323,7 @@ describe('createApiKeyMiddleware', () => {
   it('returns 401 when key is invalid', async () => {
     const store = makeStore({ findByPrefix: vi.fn().mockResolvedValue(null) });
     const app = await buildApp(store);
-    const res = await request(app).get('/protected').set('Authorization', 'ApiKey ak_00000000xxxx');
+    const res = await request(await listen(app)).get('/protected').set('Authorization', 'ApiKey ak_00000000xxxx');
     expect(res.status).toBe(401);
   });
 
@@ -332,7 +333,7 @@ describe('createApiKeyMiddleware', () => {
     const revokedRecord = { ...record, isActive: false };
     const store = makeStore({ findByPrefix: vi.fn().mockResolvedValue(revokedRecord) });
     const app = await buildApp(store);
-    const res = await request(app).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
+    const res = await request(await listen(app)).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('API_KEY_REVOKED');
   });
@@ -342,7 +343,7 @@ describe('createApiKeyMiddleware', () => {
     const { rawKey, record } = await service.createKey(tempStore, { name: 'svc', scopes: ['tools:read'] });
     const store = makeStore({ findByPrefix: vi.fn().mockResolvedValue(record) });
     const app = await buildApp(store, { requiredScopes: ['tools:write'] });
-    const res = await request(app).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
+    const res = await request(await listen(app)).get('/protected').set('Authorization', `ApiKey ${rawKey}`);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('API_KEY_INSUFFICIENT_SCOPE');
   });

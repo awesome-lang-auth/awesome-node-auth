@@ -1380,6 +1380,7 @@ describe('headless mode — _applyHeadlessIfNeeded()', () => {
 
 import { buildUiRouter } from '../src/router/ui.router';
 import requestLib from 'supertest';
+import { listen } from './helpers/listen';
 import expressLib from 'express';
 
 describe('buildUiRouter — headless mode', () => {
@@ -1399,7 +1400,7 @@ describe('buildUiRouter — headless mode', () => {
         const app = expressLib();
         app.use('/auth/ui', buildUiRouter({ authConfig: headlessAuthConfig }));
 
-        const res = await requestLib(app).get('/auth/ui/config');
+        const res = await requestLib(await listen(app)).get('/auth/ui/config');
 
         expect(res.status).toBe(200);
         expect(res.body.headless).toBe(true);
@@ -1409,7 +1410,7 @@ describe('buildUiRouter — headless mode', () => {
         const app = expressLib();
         app.use('/auth/ui', buildUiRouter({ authConfig: fullAuthConfig }));
 
-        const res = await requestLib(app).get('/auth/ui/config');
+        const res = await requestLib(await listen(app)).get('/auth/ui/config');
 
         expect(res.status).toBe(200);
         expect(res.body.headless).toBe(false);
@@ -1419,7 +1420,7 @@ describe('buildUiRouter — headless mode', () => {
         const app = expressLib();
         app.use('/auth/ui', buildUiRouter({ authConfig: headlessAuthConfig }));
 
-        const res = await requestLib(app).get('/auth/ui/login');
+        const res = await requestLib(await listen(app)).get('/auth/ui/login');
 
         expect(res.status).toBe(404);
     });
@@ -1428,7 +1429,7 @@ describe('buildUiRouter — headless mode', () => {
         const app = expressLib();
         app.use('/auth/ui', buildUiRouter({ authConfig: fullAuthConfig }));
 
-        const res = await requestLib(app).get('/auth/ui/login');
+        const res = await requestLib(await listen(app)).get('/auth/ui/login');
 
         // The response should be 200 (HTML served) — verify it's NOT a headless 404
         expect(res.status).toBe(200);
@@ -1439,7 +1440,7 @@ describe('buildUiRouter — headless mode', () => {
         const app = expressLib();
         app.use('/auth/ui', buildUiRouter({ authConfig: headlessAuthConfig }));
 
-        const res = await requestLib(app).get('/auth/ui/auth.js');
+        const res = await requestLib(await listen(app)).get('/auth/ui/auth.js');
 
         expect([200, 304]).toContain(res.status);
     });

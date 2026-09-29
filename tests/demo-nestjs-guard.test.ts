@@ -25,6 +25,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express, { Request, Response, NextFunction } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 import { AuthConfigurator, createAdminRouter, PasswordService, AuthError } from '../src/index';
 import type { AuthConfig, IUserStore, BaseUser } from '../src/index';
@@ -206,8 +207,8 @@ function createNestjsDemoApp() {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async function registerAndLogin(app: express.Application, email = 'alice@example.com', password = 'secret123') {
-  await request(app).post('/auth/register').send({ email, password });
-  const res = await request(app).post('/auth/login').send({ email, password });
+  await request(await listen(app)).post('/auth/register').send({ email, password });
+  const res = await request(await listen(app)).post('/auth/login').send({ email, password });
   const raw: string[] | string | undefined = res.headers['set-cookie'];
   return { cookies: Array.isArray(raw) ? raw : raw ? [raw] : [] };
 }
@@ -225,7 +226,7 @@ describe('Demo NestJS guard + auth patterns', () => {
 
   describe('AuthController (POST /auth/register + POST /auth/login)', () => {
     it('registers a new user', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(201);
@@ -233,16 +234,16 @@ describe('Demo NestJS guard + auth patterns', () => {
     });
 
     it('returns 409 for duplicate email', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'other' });
       expect(res.status).toBe(409);
     });
 
     it('login issues HttpOnly JWT cookies', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(200);
@@ -256,13 +257,13 @@ describe('Demo NestJS guard + auth patterns', () => {
 
   describe('JwtAuthGuard (auth.middleware())', () => {
     it('rejects unauthenticated request with 403', async () => {
-      const res = await request(app).get('/api/profile');
+      const res = await request(await listen(app)).get('/api/profile');
       expect(res.status).toBe(403);
     });
 
     it('allows request with valid accessToken cookie and attaches user', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/api/profile')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -270,7 +271,7 @@ describe('Demo NestJS guard + auth patterns', () => {
     });
 
     it('rejects request with tampered token with 403', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/api/profile')
         .set('Cookie', ['accessToken=tampered.token.here']);
       expect(res.status).toBe(403);
@@ -282,7 +283,7 @@ describe('Demo NestJS guard + auth patterns', () => {
   describe('@CurrentUser() decorator pattern', () => {
     it('req.user contains sub, email, and role', async () => {
       const { cookies } = await registerAndLogin(app, 'bob@example.com', 'pass123');
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/api/profile')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -292,7 +293,7 @@ describe('Demo NestJS guard + auth patterns', () => {
     });
 
     it('req.user is undefined (request rejected) without a token', async () => {
-      const res = await request(app).get('/api/profile');
+      const res = await request(await listen(app)).get('/api/profile');
       expect(res.status).toBe(403);
     });
   });
@@ -301,13 +302,13 @@ describe('Demo NestJS guard + auth patterns', () => {
 
   describe('GET /auth/me (built-in protected endpoint)', () => {
     it('returns 403 without token', async () => {
-      const res = await request(app).get('/auth/me');
+      const res = await request(await listen(app)).get('/auth/me');
       expect(res.status).toBe(403);
     });
 
     it('returns user data with valid cookie', async () => {
       const { cookies } = await registerAndLogin(app, 'carol@example.com', 'pass123');
-      const res = await request(app).get('/auth/me').set('Cookie', cookies);
+      const res = await request(await listen(app)).get('/auth/me').set('Cookie', cookies);
       expect(res.status).toBe(200);
       expect(res.body.email).toBe('carol@example.com');
     });
@@ -317,13 +318,13 @@ describe('Demo NestJS guard + auth patterns', () => {
 
   describe('Admin panel (/admin)', () => {
     it('GET /admin/api/users returns 401 without credentials', async () => {
-      const res = await request(app).get('/admin/api/users');
+      const res = await request(await listen(app)).get('/admin/api/users');
       expect(res.status).toBe(401);
     });
 
     it('GET /admin/api/users returns users with valid credentials', async () => {
-      await request(app).post('/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
+      const res = await request(await listen(app))
         .get('/admin/api/users')
         .set('Authorization', `Bearer ${ADMIN_SECRET}`);
       expect(res.status).toBe(200);
@@ -336,7 +337,7 @@ describe('Demo NestJS guard + auth patterns', () => {
   describe('Token lifecycle', () => {
     it('POST /auth/refresh renews the access token', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/refresh')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -346,15 +347,15 @@ describe('Demo NestJS guard + auth patterns', () => {
     it('/api/profile returns 403 after logout', async () => {
       const { cookies } = await registerAndLogin(app, 'eve@example.com', 'pass123');
       // Confirm access works before logout
-      const before = await request(app).get('/api/profile').set('Cookie', cookies);
+      const before = await request(await listen(app)).get('/api/profile').set('Cookie', cookies);
       expect(before.status).toBe(200);
 
       // Logout
-      const logoutRes = await request(app).post('/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
       expect(logoutRes.status).toBe(200);
 
       // Protected route now returns 403
-      const after = await request(app)
+      const after = await request(await listen(app))
         .get('/api/profile')
         .set('Cookie', logoutRes.headers['set-cookie'] as string[]);
       expect(after.status).toBe(403);
