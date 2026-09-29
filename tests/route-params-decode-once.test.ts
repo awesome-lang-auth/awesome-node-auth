@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express, { Express } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { createAdminRouter } from '../src/router/admin.router';
 import { createAuthRouter } from '../src/router/auth.router';
@@ -93,43 +94,43 @@ describe('route params are decoded once (follow-up to #29)', () => {
   for (const { encoded, value } of CASES) {
     describe(`value ${JSON.stringify(value)} sent as ${encoded}`, () => {
       it('DELETE /admin/api/users/:id/roles/:role', async () => {
-        const res = await request(admin).delete(`/admin/api/users/u1/roles/${encoded}`);
+        const res = await request(await listen(admin)).delete(`/admin/api/users/u1/roles/${encoded}`);
         expect(res.status).toBe(200);
         expect(rbacStore.removeRoleFromUser).toHaveBeenCalledWith('u1', value);
       });
 
       it('DELETE /admin/api/sessions/:handle', async () => {
-        const res = await request(admin).delete(`/admin/api/sessions/${encoded}`);
+        const res = await request(await listen(admin)).delete(`/admin/api/sessions/${encoded}`);
         expect(res.status).toBe(200);
         expect(sessionStore.revokeSession).toHaveBeenCalledWith(value);
       });
 
       it('DELETE /admin/api/roles/:name', async () => {
-        const res = await request(admin).delete(`/admin/api/roles/${encoded}`);
+        const res = await request(await listen(admin)).delete(`/admin/api/roles/${encoded}`);
         expect(res.status).toBe(200);
         expect(rbacStore.deleteRole).toHaveBeenCalledWith(value);
       });
 
       it('DELETE /admin/api/tenants/:id', async () => {
-        const res = await request(admin).delete(`/admin/api/tenants/${encoded}`);
+        const res = await request(await listen(admin)).delete(`/admin/api/tenants/${encoded}`);
         expect(res.status).toBe(200);
         expect(tenantStore.deleteTenant).toHaveBeenCalledWith(value);
       });
 
       it('GET /admin/api/tenants/:id/users', async () => {
-        const res = await request(admin).get(`/admin/api/tenants/${encoded}/users`);
+        const res = await request(await listen(admin)).get(`/admin/api/tenants/${encoded}/users`);
         expect(res.status).toBe(200);
         expect(tenantStore.getUsersForTenant).toHaveBeenCalledWith(value);
       });
 
       it('POST /admin/api/tenants/:id/users', async () => {
-        const res = await request(admin).post(`/admin/api/tenants/${encoded}/users`).send({ userId: 'u1' });
+        const res = await request(await listen(admin)).post(`/admin/api/tenants/${encoded}/users`).send({ userId: 'u1' });
         expect(res.status).toBe(200);
         expect(tenantStore.associateUserWithTenant).toHaveBeenCalledWith('u1', value);
       });
 
       it('DELETE /admin/api/tenants/:id/users/:userId (both params)', async () => {
-        const res = await request(admin).delete(`/admin/api/tenants/${encoded}/users/${encoded}`);
+        const res = await request(await listen(admin)).delete(`/admin/api/tenants/${encoded}/users/${encoded}`);
         expect(res.status).toBe(200);
         expect(tenantStore.disassociateUserFromTenant).toHaveBeenCalledWith(value, value);
       });
@@ -150,7 +151,7 @@ describe('route params are decoded once (follow-up to #29)', () => {
         const app = express();
         app.use('/admin', createAdminRouter(store, { accessPolicy: 'open', jwtSecret: secret, authConfig: cfg }));
 
-        const res = await request(app).post(`/admin/api/users/${encoded}/send-verification-email`);
+        const res = await request(await listen(app)).post(`/admin/api/users/${encoded}/send-verification-email`);
 
         expect(res.status).toBe(200);
         expect(sent).toEqual(['p@example.com']);
@@ -163,7 +164,7 @@ describe('route params are decoded once (follow-up to #29)', () => {
         app.use('/auth', createAuthRouter(userStore, config, { sessionStore }));
         const token = jwt.sign({ sub: 'u1', email: 'u1@example.com', role: 'user' }, secret, { expiresIn: '1h' });
 
-        const res = await request(app)
+        const res = await request(await listen(app))
           .delete(`/auth/sessions/${encoded}`)
           .set('Authorization', `Bearer ${token}`);
 
