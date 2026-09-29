@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express, { Express } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { AuthConfigurator } from '../src/auth-configurator';
 import { createAdminRouter } from '../src/router/admin.router';
@@ -108,7 +109,7 @@ describe('Issue #29', () => {
     it('an id containing "%" (sent as %25) reaches the user with that id', async () => {
       userStore.add({ id: 'a%b', email: 'percent@example.com', isEmailVerified: false } as BaseUser);
 
-      const res = await request(adminApp()).post('/admin/api/users/a%25b/send-verification-email');
+      const res = await request(await listen(adminApp())).post('/admin/api/users/a%25b/send-verification-email');
 
       expect(res.status).toBe(200);
       expect(sentTo).toEqual(['percent@example.com']);
@@ -117,8 +118,8 @@ describe('Issue #29', () => {
     it('an email encoded once (%40) is found; the alias /users/:id behaves the same', async () => {
       userStore.add({ id: 'u1', email: 'alice@example.com', isEmailVerified: false } as BaseUser);
 
-      const res1 = await request(adminApp()).post('/admin/api/users/alice%40example.com/send-verification-email');
-      const res2 = await request(adminApp()).post('/admin/users/alice%40example.com/send-verification-email');
+      const res1 = await request(await listen(adminApp())).post('/admin/api/users/alice%40example.com/send-verification-email');
+      const res2 = await request(await listen(adminApp())).post('/admin/users/alice%40example.com/send-verification-email');
 
       expect(res1.status).toBe(200);
       expect(res2.status).toBe(200);
@@ -128,7 +129,7 @@ describe('Issue #29', () => {
     it('a double-encoded email (%2540) is not decoded twice: 404, the user is not reached', async () => {
       userStore.add({ id: 'u1', email: 'a@b.c', isEmailVerified: false } as BaseUser);
 
-      const res = await request(adminApp()).post('/admin/api/users/a%2540b.c/send-verification-email');
+      const res = await request(await listen(adminApp())).post('/admin/api/users/a%2540b.c/send-verification-email');
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('User not found');
@@ -147,7 +148,7 @@ describe('Issue #29', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, config));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/send-verification-email')
         .set('Authorization', `Bearer ${userToken(user)}`);
 
@@ -160,7 +161,7 @@ describe('Issue #29', () => {
       userStore.add({ id: 'u1', email: 'admin-target@example.com', isEmailVerified: false } as BaseUser);
       withoutVerification(userStore);
 
-      const res = await request(adminApp()).post('/admin/api/users/u1/send-verification-email');
+      const res = await request(await listen(adminApp())).post('/admin/api/users/u1/send-verification-email');
 
       expect(res.status).toBe(501);
       expect(res.body.error).toBe('UserStore does not implement email verification');
@@ -218,12 +219,12 @@ describe('Issue #29', () => {
       app.use(auth.buildAllRouters({ admin: { accessPolicy: 'open' } }));
 
       // The auth router is mounted on /api/auth ...
-      const viaRoute = await request(app)
+      const viaRoute = await request(await listen(app))
         .post('/api/auth/send-verification-email')
         .set('Authorization', `Bearer ${userToken(user)}`);
       expect(viaRoute.status).toBe(200);
       // ... the admin router on /api/auth/admin ...
-      const viaAdmin = await request(app).post('/api/auth/admin/api/users/u1/send-verification-email');
+      const viaAdmin = await request(await listen(app)).post('/api/auth/admin/api/users/u1/send-verification-email');
       expect(viaAdmin.status).toBe(200);
       // ... and the configurator helper links there as well.
       await auth.sendVerificationEmail('u1');
@@ -239,7 +240,7 @@ describe('Issue #29', () => {
     it('with only authConfig uses authConfig.apiPrefix', async () => {
       userStore.add({ id: 'u1', email: 'standalone@example.com', isEmailVerified: false } as BaseUser);
 
-      const res = await request(adminApp({ ...config, apiPrefix: '/api/auth' }))
+      const res = await request(await listen(adminApp({ ...config, apiPrefix: '/api/auth' })))
         .post('/admin/api/users/u1/send-verification-email');
 
       expect(res.status).toBe(200);
@@ -249,7 +250,7 @@ describe('Issue #29', () => {
     it('routerOptions without apiPrefix do not hide the apiPrefix option', async () => {
       userStore.add({ id: 'u1', email: 'standalone2@example.com', isEmailVerified: false } as BaseUser);
 
-      const res = await request(adminApp(config, { apiPrefix: '/api/auth', routerOptions: {} }))
+      const res = await request(await listen(adminApp(config, { apiPrefix: '/api/auth', routerOptions: {} })))
         .post('/admin/api/users/u1/send-verification-email');
 
       expect(res.status).toBe(200);
@@ -271,7 +272,7 @@ describe('Issue #29', () => {
       const user = userStore.add({ id: 'u1', email: 'self-500@example.com' } as BaseUser);
       const app = selfApp(() => { throw new AuthError('Billing still active', 'BILLING_ACTIVE'); });
 
-      const res = await request(app).delete('/auth/account').set('Authorization', `Bearer ${userToken(user)}`);
+      const res = await request(await listen(app)).delete('/auth/account').set('Authorization', `Bearer ${userToken(user)}`);
 
       expect(res.status).toBe(500);
       expect(res.body).toEqual({ error: 'Billing still active', code: 'BILLING_ACTIVE' });
@@ -284,7 +285,7 @@ describe('Issue #29', () => {
         onBeforeDeleteUser: () => { throw new AuthError('Billing still active'); },
       });
 
-      const res = await request(app).delete('/admin/api/users/u1');
+      const res = await request(await listen(app)).delete('/admin/api/users/u1');
 
       expect(res.status).toBe(500);
       expect(res.body).toEqual({ error: 'Billing still active', code: 'AUTH_ERROR' });
@@ -295,7 +296,7 @@ describe('Issue #29', () => {
       const user = userStore.add({ id: 'u1', email: 'self-409@example.com' } as BaseUser);
       const app = selfApp(() => { throw new AuthError('Billing still active', 409, 'BILLING_ACTIVE'); });
 
-      const res = await request(app).delete('/auth/account').set('Authorization', `Bearer ${userToken(user)}`);
+      const res = await request(await listen(app)).delete('/auth/account').set('Authorization', `Bearer ${userToken(user)}`);
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual({ error: 'Billing still active', code: 'BILLING_ACTIVE' });
@@ -308,7 +309,7 @@ describe('Issue #29', () => {
         onBeforeDeleteUser: () => { throw new AuthError('Billing still active', 'BILLING_ACTIVE', 409); },
       });
 
-      const res = await request(app).delete('/admin/api/users/u1');
+      const res = await request(await listen(app)).delete('/admin/api/users/u1');
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual({ error: 'Billing still active', code: 'BILLING_ACTIVE' });
