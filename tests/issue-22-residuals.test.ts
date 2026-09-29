@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import {
   createAuthRouter,
   validateReturnPath,
@@ -99,7 +100,7 @@ describe('Issue #22 Residuals verification', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, baseOAuthConfig, { googleStrategy }));
 
-      const initRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       expect(initRes.status).toBe(302);
       const location = new URL(initRes.headers['location'] as string);
       const originalState = location.searchParams.get('state')!;
@@ -112,7 +113,7 @@ describe('Issue #22 Residuals verification', () => {
       // Strip s and exp, leaving only { n, o }
       const strippedState = Buffer.from(JSON.stringify({ n: parsedOriginal.n, o: parsedOriginal.o })).toString('base64url');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(strippedState)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -125,12 +126,12 @@ describe('Issue #22 Residuals verification', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, baseOAuthConfig, { googleStrategy }));
 
-      const initRes = await request(app).get('/auth/oauth/google');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google');
       const cookieHeaders = parseCookieHeaders(initRes, 'oauth_nonce_google');
       const cookieNonce = parseCookieValue(cookieHeaders[0]);
 
       // Pass bare nonce as state
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${cookieNonce}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -147,14 +148,14 @@ describe('Issue #22 Residuals verification', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, multiOriginConfig, { googleStrategy }));
 
-      const initRes = await request(app).get('/auth/oauth/google').set('Origin', 'https://app.example.com');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google').set('Origin', 'https://app.example.com');
       const cookieHeaders = parseCookieHeaders(initRes, 'oauth_nonce_google');
       const cookieNonce = parseCookieValue(cookieHeaders[0]);
 
       // Attacker swaps origin to admin origin without valid signature
       const forgedState = Buffer.from(JSON.stringify({ n: cookieNonce, o: 'https://admin.example.com' })).toString('base64url');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(forgedState)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -184,14 +185,14 @@ describe('Issue #22 Residuals verification', () => {
       }));
 
       for (let i = 0; i < 4; i++) {
-        const initRes = await request(app).get('/auth/oauth/google?return_path=/ok');
+        const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/ok');
         expect(initRes.status).toBe(302);
         const location = new URL(initRes.headers['location'] as string);
         const state = location.searchParams.get('state')!;
         const cookieHeaders = parseCookieHeaders(initRes, 'oauth_nonce_google');
         const cookieNonce = parseCookieValue(cookieHeaders[0]);
 
-        const callbackRes = await request(app)
+        const callbackRes = await request(await listen(app))
           .get(`/auth/oauth/google/callback?code=code-${i}&state=${encodeURIComponent(state)}`)
           .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -219,12 +220,12 @@ describe('Issue #22 Residuals verification', () => {
       }));
 
       // /other should be rejected because config.oauth.allowedReturnPaths = ['/oauth/done']
-      const rejectedRes = await request(app).get('/auth/oauth/google?return_path=/other');
+      const rejectedRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/other');
       expect(rejectedRes.status).toBe(400);
       expect(rejectedRes.body.code).toBe('OAUTH_RETURN_PATH_INVALID');
 
       // /oauth/done should be accepted
-      const acceptedRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const acceptedRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       expect(acceptedRes.status).toBe(302);
     });
   });
@@ -234,7 +235,7 @@ describe('Issue #22 Residuals verification', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, baseOAuthConfig, { googleStrategy }));
 
-      const res = await request(app).get('/auth/oauth/google');
+      const res = await request(await listen(app)).get('/auth/oauth/google');
       expect(res.status).toBe(302);
 
       const cookieHeaders = parseCookieHeaders(res, 'oauth_nonce_google');
@@ -250,7 +251,7 @@ describe('Issue #22 Residuals verification', () => {
         oauthStrategies: [discordStrategy],
       }));
 
-      const res = await request(app).get('/auth/oauth/discord');
+      const res = await request(await listen(app)).get('/auth/oauth/discord');
       expect(res.status).toBe(302);
 
       const cookieHeaders = parseCookieHeaders(res, 'oauth_nonce_discord');
@@ -277,14 +278,14 @@ describe('Issue #22 Residuals verification', () => {
       }));
 
       const returnPath = '/oauth/done?tab=profile&theme=dark';
-      const initRes = await request(app).get(`/auth/oauth/google?return_path=${encodeURIComponent(returnPath)}`);
+      const initRes = await request(await listen(app)).get(`/auth/oauth/google?return_path=${encodeURIComponent(returnPath)}`);
       expect(initRes.status).toBe(302);
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
       const cookieHeaders = parseCookieHeaders(initRes, 'oauth_nonce_google');
       const cookieNonce = parseCookieValue(cookieHeaders[0]);
 
-      const callbackRes = await request(app)
+      const callbackRes = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=test-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 

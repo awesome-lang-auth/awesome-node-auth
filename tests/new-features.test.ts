@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
@@ -130,7 +131,7 @@ describe('POST /auth/change-password', () => {
 
   it('changes password with correct current password', async () => {
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-password')
       .set('Cookie', `accessToken=${token}`)
       .send({ currentPassword: 'oldpass123', newPassword: 'newpass456' });
@@ -141,7 +142,7 @@ describe('POST /auth/change-password', () => {
 
   it('rejects wrong current password', async () => {
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-password')
       .set('Cookie', `accessToken=${token}`)
       .send({ currentPassword: 'wrongpass', newPassword: 'newpass456' });
@@ -149,7 +150,7 @@ describe('POST /auth/change-password', () => {
   });
 
   it('requires authentication', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-password')
       .send({ currentPassword: 'old', newPassword: 'new' });
     expect(res.status).toBe(403);
@@ -177,7 +178,7 @@ describe('Email verification flow', () => {
 
   it('sends verification email', async () => {
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/send-verification-email')
       .set('Cookie', `accessToken=${token}`)
       .send({});
@@ -190,7 +191,7 @@ describe('Email verification flow', () => {
   it('rejects re-sending if already verified', async () => {
     users.get('1')!.isEmailVerified = true;
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/send-verification-email')
       .set('Cookie', `accessToken=${token}`)
       .send({});
@@ -201,7 +202,7 @@ describe('Email verification flow', () => {
     const user = users.get('1')!;
     user.emailVerificationToken = 'valid-token-abc';
     user.emailVerificationTokenExpiry = new Date(Date.now() + 3600_000);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/verify-email?token=valid-token-abc');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -212,17 +213,17 @@ describe('Email verification flow', () => {
     const user = users.get('1')!;
     user.emailVerificationToken = 'expired-token';
     user.emailVerificationTokenExpiry = new Date(Date.now() - 1000);
-    const res = await request(app).get('/auth/verify-email?token=expired-token');
+    const res = await request(await listen(app)).get('/auth/verify-email?token=expired-token');
     expect(res.status).toBe(400);
   });
 
   it('rejects invalid verification token', async () => {
-    const res = await request(app).get('/auth/verify-email?token=no-such-token');
+    const res = await request(await listen(app)).get('/auth/verify-email?token=no-such-token');
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when token param is missing', async () => {
-    const res = await request(app).get('/auth/verify-email');
+    const res = await request(await listen(app)).get('/auth/verify-email');
     expect(res.status).toBe(400);
   });
 });
@@ -248,7 +249,7 @@ describe('Change email flow', () => {
 
   it('requests email change and sends verification to new address', async () => {
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-email/request')
       .set('Cookie', `accessToken=${token}`)
       .send({ newEmail: 'new@test.com' });
@@ -261,7 +262,7 @@ describe('Change email flow', () => {
   it('rejects if new email is already in use', async () => {
     users.set('2', { id: '2', email: 'taken@test.com' });
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-email/request')
       .set('Cookie', `accessToken=${token}`)
       .send({ newEmail: 'taken@test.com' });
@@ -273,7 +274,7 @@ describe('Change email flow', () => {
     user.pendingEmail = 'new@test.com';
     user.emailChangeToken = 'change-token-xyz';
     user.emailChangeTokenExpiry = new Date(Date.now() + 3600_000);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-email/confirm')
       .send({ token: 'change-token-xyz' });
     expect(res.status).toBe(200);
@@ -300,7 +301,7 @@ describe('Change email flow', () => {
     eventApp.use(express.json());
     eventApp.use('/auth', createAuthRouter(store, config, { eventBus: bus }));
 
-    const res = await request(eventApp)
+    const res = await request(await listen(eventApp))
       .post('/auth/change-email/confirm')
       .send({ token: 'change-token-event' });
 
@@ -314,14 +315,14 @@ describe('Change email flow', () => {
     user.pendingEmail = 'new@test.com';
     user.emailChangeToken = 'expired-change-token';
     user.emailChangeTokenExpiry = new Date(Date.now() - 1000);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/change-email/confirm')
       .send({ token: 'expired-change-token' });
     expect(res.status).toBe(400);
   });
 
   it('rejects invalid email-change token', async () => {
-    const res = await request(app).post('/auth/change-email/confirm').send({ token: 'bad-token' });
+    const res = await request(await listen(app)).post('/auth/change-email/confirm').send({ token: 'bad-token' });
     expect(res.status).toBe(400);
   });
 });
@@ -434,24 +435,24 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin serves the HTML UI', async () => {
-    const res = await request(app).get('/admin/');
+    const res = await request(await listen(app)).get('/admin/');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/html/);
     expect(res.text).toContain('awesome-node-auth Admin');
   });
 
   it('GET /admin/api/ping returns 401 without auth', async () => {
-    const res = await request(app).get('/admin/api/ping');
+    const res = await request(await listen(app)).get('/admin/api/ping');
     expect(res.status).toBe(401);
   });
 
   it('GET /admin/api/ping returns 403 with wrong secret', async () => {
-    const res = await request(app).get('/admin/api/ping').set('Authorization', 'Bearer wrong');
+    const res = await request(await listen(app)).get('/admin/api/ping').set('Authorization', 'Bearer wrong');
     expect(res.status).toBe(403);
   });
 
   it('GET /admin/api/ping succeeds with correct secret', async () => {
-    const res = await request(app).get('/admin/api/ping').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/ping').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.features.sessions).toBe(true);
@@ -460,7 +461,7 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users lists users', async () => {
-    const res = await request(app).get('/admin/api/users?limit=10&offset=0').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/users?limit=10&offset=0').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
     // No sensitive fields exposed
@@ -470,25 +471,25 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users/:id returns user', async () => {
-    const res = await request(app).get('/admin/api/users/1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/users/1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.email).toBe('alice@test.com');
   });
 
   it('GET /admin/api/sessions lists sessions', async () => {
-    const res = await request(app).get('/admin/api/sessions').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/sessions').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.sessions).toHaveLength(1);
   });
 
   it('DELETE /admin/api/sessions/:handle revokes a session', async () => {
-    const res = await request(app).delete('/admin/api/sessions/h1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).delete('/admin/api/sessions/h1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(stores.sessionStore.revokeSession).toHaveBeenCalled();
   });
 
   it('GET /admin/api/roles lists roles with permissions', async () => {
-    const res = await request(app).get('/admin/api/roles').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/roles').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     const adminRole = res.body.roles.find((r: { name: string }) => r.name === 'admin');
     expect(adminRole).toBeDefined();
@@ -496,7 +497,7 @@ describe('Admin Router', () => {
   });
 
   it('POST /admin/api/roles creates a role', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/roles')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ name: 'editor', permissions: ['posts:write'] });
@@ -505,20 +506,20 @@ describe('Admin Router', () => {
   });
 
   it('DELETE /admin/api/roles/:name deletes a role', async () => {
-    const res = await request(app).delete('/admin/api/roles/viewer').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).delete('/admin/api/roles/viewer').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(stores.rbacStore.deleteRole).toHaveBeenCalledWith('viewer');
   });
 
   it('GET /admin/api/tenants lists tenants', async () => {
-    const res = await request(app).get('/admin/api/tenants').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/tenants').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.tenants).toHaveLength(1);
     expect(res.body.tenants[0].name).toBe('Acme Corp');
   });
 
   it('POST /admin/api/tenants creates a tenant', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/tenants')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ name: 'Widgets Inc' });
@@ -527,13 +528,13 @@ describe('Admin Router', () => {
   });
 
   it('DELETE /admin/api/tenants/:id deletes a tenant', async () => {
-    const res = await request(app).delete('/admin/api/tenants/t1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).delete('/admin/api/tenants/t1').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(stores.tenantStore.deleteTenant).toHaveBeenCalledWith('t1');
   });
 
   it('GET /admin/api/users/:id/metadata returns empty object by default', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/users/1/metadata')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -541,7 +542,7 @@ describe('Admin Router', () => {
   });
 
   it('PUT /admin/api/users/:id/metadata saves metadata', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .put('/admin/api/users/1/metadata')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ plan: 'pro', score: 42 });
@@ -550,11 +551,11 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users/:id/metadata reflects saved metadata', async () => {
-    await request(app)
+    await request(await listen(app))
       .put('/admin/api/users/1/metadata')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ plan: 'enterprise' });
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/users/1/metadata')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -562,13 +563,13 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users/:id/roles returns user roles', async () => {
-    const res = await request(app).get('/admin/api/users/1/roles').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/users/1/roles').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.roles)).toBe(true);
   });
 
   it('POST /admin/api/users/:id/roles assigns a role to a user', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/users/1/roles')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ role: 'admin' });
@@ -577,7 +578,7 @@ describe('Admin Router', () => {
   });
 
   it('DELETE /admin/api/users/:id/roles/:role removes a role from a user', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .delete('/admin/api/users/1/roles/admin')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -585,7 +586,7 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/tenants/:id/users lists tenant members', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/tenants/t1/users')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -593,7 +594,7 @@ describe('Admin Router', () => {
   });
 
   it('POST /admin/api/tenants/:id/users adds a user to a tenant', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/tenants/t1/users')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ userId: '1' });
@@ -602,7 +603,7 @@ describe('Admin Router', () => {
   });
 
   it('DELETE /admin/api/tenants/:id/users/:userId removes a user from a tenant', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .delete('/admin/api/tenants/t1/users/1')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -610,13 +611,13 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/ping reports linkedAccounts feature as true when store is provided', async () => {
-    const res = await request(app).get('/admin/api/ping').set('Authorization', `Bearer ${ADMIN_SECRET}`);
+    const res = await request(await listen(app)).get('/admin/api/ping').set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
     expect(res.body.features.linkedAccounts).toBe(true);
   });
 
   it('GET /admin/api/users/:id/linked-accounts returns linked accounts', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/users/1/linked-accounts')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -626,7 +627,7 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users/:id/linked-accounts returns empty array when no accounts linked', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/users/99/linked-accounts')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -634,7 +635,7 @@ describe('Admin Router', () => {
   });
 
   it('GET /admin/api/users/:id/linked-accounts returns 401 without auth', async () => {
-    const res = await request(app).get('/admin/api/users/1/linked-accounts');
+    const res = await request(await listen(app)).get('/admin/api/users/1/linked-accounts');
     expect(res.status).toBe(401);
   });
 
@@ -642,14 +643,14 @@ describe('Admin Router', () => {
     const appNoLinked = express();
     appNoLinked.use(express.json());
     appNoLinked.use('/admin', createAdminRouter(stores.userStore, { adminSecret: ADMIN_SECRET }));
-    const res = await request(appNoLinked)
+    const res = await request(await listen(appNoLinked))
       .get('/admin/api/users/1/linked-accounts')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(404);
   });
 
   it('GET /admin HTML includes featLinkedAccounts=true when store is provided', async () => {
-    const res = await request(app).get('/admin/');
+    const res = await request(await listen(app)).get('/admin/');
     expect(res.status).toBe(200);
     expect(res.text).toContain('"featLinkedAccounts":true');
   });
@@ -658,7 +659,7 @@ describe('Admin Router', () => {
     const appNoLinked = express();
     appNoLinked.use(express.json());
     appNoLinked.use('/admin', createAdminRouter(stores.userStore, { adminSecret: ADMIN_SECRET }));
-    const res = await request(appNoLinked).get('/admin/');
+    const res = await request(await listen(appNoLinked)).get('/admin/');
     expect(res.status).toBe(200);
     expect(res.text).toContain('"featLinkedAccounts":false');
   });
@@ -684,7 +685,7 @@ describe('Login with require2FA flag', () => {
 
   it('blocks login with 2FA_SETUP_REQUIRED when require2FA=true and no 2FA method available', async () => {
     users.set('1', { id: '1', email: 'user@test.com', password: passwordHash, require2FA: true, isTotpEnabled: false });
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('2FA_SETUP_REQUIRED');
     expect(res.body.requires2FASetup).toBe(true);
@@ -693,7 +694,7 @@ describe('Login with require2FA flag', () => {
 
   it('allows login normally when require2FA=true and 2FA is already enabled', async () => {
     users.set('1', { id: '1', email: 'user@test.com', password: passwordHash, require2FA: true, isTotpEnabled: true, totpSecret: 'secret' });
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     // Should go to the 2FA challenge step, not the setup block
     expect(res.status).toBe(200);
     expect(res.body.requiresTwoFactor).toBe(true);
@@ -709,7 +710,7 @@ describe('Login with require2FA flag', () => {
     const appWithMagicLink = express();
     appWithMagicLink.use(express.json());
     appWithMagicLink.use('/auth', createAuthRouter(store, configWithMagicLink));
-    const res = await request(appWithMagicLink).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(appWithMagicLink)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(200);
     expect(res.body.requiresTwoFactor).toBe(true);
     expect(res.body.available2faMethods).toContain('magic-link');
@@ -718,7 +719,7 @@ describe('Login with require2FA flag', () => {
 
   it('allows normal login when require2FA is not set', async () => {
     users.set('1', { id: '1', email: 'user@test.com', password: passwordHash });
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
@@ -743,7 +744,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, emailVerificationMode: 'strict' }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
   });
@@ -753,7 +754,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, emailVerificationMode: 'strict' }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(200);
   });
 
@@ -762,7 +763,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, requireEmailVerification: true }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
   });
@@ -772,7 +773,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, emailVerificationMode: 'lazy' }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(200);
   });
 
@@ -787,7 +788,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, emailVerificationMode: 'lazy' }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('EMAIL_VERIFICATION_REQUIRED');
   });
@@ -797,7 +798,7 @@ describe('Email verification modes', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, { ...config, emailVerificationMode: 'none' }));
-    const res = await request(app).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@test.com', password: 'pass' });
     expect(res.status).toBe(200);
   });
 });
@@ -844,7 +845,7 @@ describe('Admin 2FA Policy endpoint', () => {
   });
 
   it('POST /admin/api/2fa-policy enables require2FA for all users', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/2fa-policy')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ required: true });
@@ -857,7 +858,7 @@ describe('Admin 2FA Policy endpoint', () => {
   it('POST /admin/api/2fa-policy disables require2FA for all users', async () => {
     // Pre-set require2FA on all users
     userMap.forEach(u => { u.require2FA = true; });
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/2fa-policy')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ required: false });
@@ -867,7 +868,7 @@ describe('Admin 2FA Policy endpoint', () => {
   });
 
   it('POST /admin/api/2fa-policy returns 400 when required is not boolean', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/api/2fa-policy')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ required: 'yes' });
@@ -885,7 +886,7 @@ describe('Admin 2FA Policy endpoint', () => {
     const app2 = express();
     app2.use(express.json());
     app2.use('/admin', createAdminRouter(storeWithout as any, { adminSecret: ADMIN_SECRET }));
-    const res = await request(app2)
+    const res = await request(await listen(app2))
       .post('/admin/api/2fa-policy')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`)
       .send({ required: true });
@@ -893,7 +894,7 @@ describe('Admin 2FA Policy endpoint', () => {
   });
 
   it('GET /admin/api/ping reports twoFAPolicy feature flag', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/ping')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -927,7 +928,7 @@ describe('GET /auth/me - enhanced profile', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -957,7 +958,7 @@ describe('GET /auth/me - enhanced profile', () => {
     };
     app.use('/auth', createAuthRouter(store, configWithCustomClaims));
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -976,7 +977,7 @@ describe('GET /auth/me - enhanced profile', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { metadataStore }));
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -997,7 +998,7 @@ describe('GET /auth/me - enhanced profile', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { rbacStore }));
     const token = getAccessToken(users.get('1')!);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -1010,7 +1011,7 @@ describe('GET /auth/me - enhanced profile', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
     const token = tokenService.generateTokenPair({ sub: 'nonexistent', email: 'gone@test.com' }, config).accessToken;
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(404);
@@ -1040,7 +1041,7 @@ describe('POST /auth/register', () => {
       return user;
     });
     app.use('/auth', createAuthRouter(store, config, { onRegister }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'new@test.com', password: 'mypass' });
     expect(res.status).toBe(201);
@@ -1053,7 +1054,7 @@ describe('POST /auth/register', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'new@test.com', password: 'mypass' });
     expect(res.status).toBe(404);
@@ -1063,7 +1064,7 @@ describe('POST /auth/register', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { defaultRegister: true }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'new@test.com', password: 'mypass' });
     expect(res.status).toBe(201);
@@ -1076,7 +1077,7 @@ describe('POST /auth/register', () => {
     app.use(express.json());
     const onRegister = vi.fn().mockRejectedValue(new Error('DB error'));
     app.use('/auth', createAuthRouter(store, config, { onRegister }));
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/register')
       .send({ email: 'bad@test.com', password: 'pass' });
     expect(res.status).toBe(500);
@@ -1104,7 +1105,7 @@ describe('POST /auth/sessions/cleanup', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { sessionStore }));
-    const res = await request(app).post('/auth/sessions/cleanup');
+    const res = await request(await listen(app)).post('/auth/sessions/cleanup');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.deleted).toBe(5);
@@ -1119,7 +1120,7 @@ describe('POST /auth/sessions/cleanup', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { sessionStore }));
-    const res = await request(app).post('/auth/sessions/cleanup');
+    const res = await request(await listen(app)).post('/auth/sessions/cleanup');
     expect(res.status).toBe(404);
   });
 
@@ -1127,7 +1128,7 @@ describe('POST /auth/sessions/cleanup', () => {
     const app = express();
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config));
-    const res = await request(app).post('/auth/sessions/cleanup');
+    const res = await request(await listen(app)).post('/auth/sessions/cleanup');
     expect(res.status).toBe(404);
   });
 });
@@ -1157,13 +1158,13 @@ describe('DELETE /auth/account', () => {
   }
 
   it('returns 403 without auth', async () => {
-    const res = await request(app).delete('/auth/account');
+    const res = await request(await listen(app)).delete('/auth/account');
     expect(res.status).toBe(403);
   });
 
   it('deletes own account and clears cookies', async () => {
     const token = getToken('u1', 'del@test.com');
-    const res = await request(app)
+    const res = await request(await listen(app))
       .delete('/auth/account')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -1177,7 +1178,7 @@ describe('DELETE /auth/account', () => {
     fallbackApp.use(express.json());
     fallbackApp.use('/auth', createAuthRouter(storeWithoutDelete as IUserStore, config));
     const token = getToken('u1', 'del@test.com');
-    const res = await request(fallbackApp)
+    const res = await request(await listen(fallbackApp))
       .delete('/auth/account')
       .set('Cookie', `accessToken=${token}`);
     expect(res.status).toBe(200);
@@ -1196,7 +1197,7 @@ describe('DELETE /auth/account', () => {
     sessionApp.use(express.json());
     sessionApp.use('/auth', createAuthRouter(store, config, { sessionStore }));
     const token = getToken('u1', 'del@test.com');
-    await request(sessionApp)
+    await request(await listen(sessionApp))
       .delete('/auth/account')
       .set('Cookie', `accessToken=${token}`);
     expect(sessionStore.revokeAllSessionsForUser).toHaveBeenCalledWith('u1');
@@ -1211,7 +1212,7 @@ describe('DELETE /auth/account', () => {
     metaApp.use(express.json());
     metaApp.use('/auth', createAuthRouter(store, config, { metadataStore }));
     const token = getToken('u1', 'del@test.com');
-    await request(metaApp)
+    await request(await listen(metaApp))
       .delete('/auth/account')
       .set('Cookie', `accessToken=${token}`);
     expect(metadataStore.clearMetadata).toHaveBeenCalledWith('u1');
@@ -1277,25 +1278,25 @@ describe('Admin Router — settingsStore and GET /api/users/:id/tenants', () => 
   function auth() { return { 'Authorization': `Bearer ${ADMIN_SECRET}` }; }
 
   it('GET /admin/api/ping reports control feature enabled', async () => {
-    const res = await request(app).get('/admin/api/ping').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/ping').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.features.control).toBe(true);
   });
 
   it('GET /admin serves HTML with Control tab when settingsStore is provided', async () => {
-    const res = await request(app).get('/admin/').set(auth());
+    const res = await request(await listen(app)).get('/admin/').set(auth());
     expect(res.status).toBe(200);
     expect(res.text).toContain('Control');
   });
 
   it('GET /admin/api/settings returns current settings', async () => {
-    const res = await request(app).get('/admin/api/settings').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/settings').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.requireEmailVerification).toBe(false);
   });
 
   it('PUT /admin/api/settings updates settings', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .put('/admin/api/settings')
       .set(auth())
       .send({ requireEmailVerification: true });
@@ -1308,14 +1309,14 @@ describe('Admin Router — settingsStore and GET /api/users/:id/tenants', () => 
     const appNoSettings = express();
     appNoSettings.use(express.json());
     appNoSettings.use('/admin', createAdminRouter(userStore, { adminSecret: ADMIN_SECRET }));
-    const res = await request(appNoSettings).get('/admin/api/settings').set(auth());
+    const res = await request(await listen(appNoSettings)).get('/admin/api/settings').set(auth());
     expect(res.status).toBe(404);
   });
 
   it('GET /admin/api/users/:id/tenants returns tenant IDs for a user', async () => {
     // First associate user with tenant
     await tenantStore.associateUserWithTenant('1', 't1');
-    const res = await request(app).get('/admin/api/users/1/tenants').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/users/1/tenants').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.tenantIds).toContain('t1');
   });
@@ -1324,7 +1325,7 @@ describe('Admin Router — settingsStore and GET /api/users/:id/tenants', () => 
     const appNoTenant = express();
     appNoTenant.use(express.json());
     appNoTenant.use('/admin', createAdminRouter(userStore, { adminSecret: ADMIN_SECRET }));
-    const res = await request(appNoTenant).get('/admin/api/users/1/tenants').set(auth());
+    const res = await request(await listen(appNoTenant)).get('/admin/api/users/1/tenants').set(auth());
     expect(res.status).toBe(404);
   });
 });
@@ -1369,21 +1370,21 @@ describe('Admin Router — user and session filter', () => {
   function auth() { return { 'Authorization': `Bearer ${ADMIN_SECRET}` }; }
 
   it('GET /admin/api/users?filter= returns only matching users', async () => {
-    const res = await request(app).get('/admin/api/users?filter=example').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/users?filter=example').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
     expect(res.body.users.every((u: { email: string }) => u.email.includes('example'))).toBe(true);
   });
 
   it('GET /admin/api/users?filter= with no match returns empty array', async () => {
-    const res = await request(app).get('/admin/api/users?filter=zzznomatch').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/users?filter=zzznomatch').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(0);
     expect(res.body.total).toBe(0);
   });
 
   it('GET /admin/api/sessions?filter= returns only sessions matching userId', async () => {
-    const res = await request(app).get('/admin/api/sessions?filter=uid-alice').set(auth());
+    const res = await request(await listen(app)).get('/admin/api/sessions?filter=uid-alice').set(auth());
     expect(res.status).toBe(200);
     expect(res.body.sessions).toHaveLength(1);
     expect(res.body.sessions[0].userId).toBe('uid-alice');
@@ -1433,7 +1434,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/login returns 401 for wrong password', async () => {
     const app = makeApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'wrong' });
     expect(res.status).toBe(401);
@@ -1441,7 +1442,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/login sets an HttpOnly cookie on success', async () => {
     const app = makeApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     expect(res.status).toBe(200);
@@ -1453,7 +1454,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/login sets cookie name "accessToken" on HTTP (non-secure)', async () => {
     const app = makeApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     expect(res.status).toBe(200);
@@ -1467,7 +1468,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/login includes maxAge aligned with 24h JWT expiry', async () => {
     const app = makeApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     expect(res.status).toBe(200);
@@ -1483,7 +1484,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
   it('POST /admin/login cookie is readable by the guard on the next request', async () => {
     const app = makeApp();
     // 1. Login
-    const loginRes = await request(app)
+    const loginRes = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     expect(loginRes.status).toBe(200);
@@ -1491,7 +1492,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
       ? loginRes.headers['set-cookie']
       : [loginRes.headers['set-cookie'] ?? ''];
     // 2. Use the cookie to access a protected endpoint
-    const pingRes = await request(app)
+    const pingRes = await request(await listen(app))
       .get('/admin/api/ping')
       .set('Cookie', setCookie.map(c => c.split(';')[0]).join('; '));
     expect(pingRes.status).toBe(200);
@@ -1499,14 +1500,14 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/logout clears the cookie with matching name', async () => {
     const app = makeApp();
-    const loginRes = await request(app)
+    const loginRes = await request(await listen(app))
       .post('/admin/login')
       .send({ email: 'admin@test.com', password: 'secret' });
     const loginCookies: string[] = Array.isArray(loginRes.headers['set-cookie'])
       ? loginRes.headers['set-cookie']
       : [loginRes.headers['set-cookie'] ?? ''];
 
-    const logoutRes = await request(app)
+    const logoutRes = await request(await listen(app))
       .post('/admin/logout')
       .set('Cookie', loginCookies.map(c => c.split(';')[0]).join('; '));
     expect(logoutRes.status).toBe(200);
@@ -1523,7 +1524,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/login uses __Host-accessToken prefix when x-forwarded-proto is https', async () => {
     const app = makeApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/admin/login')
       .set('x-forwarded-proto', 'https')
       .send({ email: 'admin@test.com', password: 'secret' });
@@ -1541,7 +1542,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
 
   it('POST /admin/logout clears __Host-accessToken on HTTPS', async () => {
     const app = makeApp();
-    const loginRes = await request(app)
+    const loginRes = await request(await listen(app))
       .post('/admin/login')
       .set('x-forwarded-proto', 'https')
       .send({ email: 'admin@test.com', password: 'secret' });
@@ -1549,7 +1550,7 @@ describe('Admin Router — session-based login cookie fixes', () => {
       ? loginRes.headers['set-cookie']
       : [loginRes.headers['set-cookie'] ?? ''];
 
-    const logoutRes = await request(app)
+    const logoutRes = await request(await listen(app))
       .post('/admin/logout')
       .set('x-forwarded-proto', 'https')
       .set('Cookie', loginCookies.map(c => c.split(';')[0]).join('; '));

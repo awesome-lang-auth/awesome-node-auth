@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express, { RequestHandler } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAdminRouter } from '../src/router/admin.router';
 import { TokenService } from '../src/services/token.service';
 import { IRolesPermissionsStore } from '../src/interfaces/roles-permissions-store.interface';
@@ -61,7 +62,7 @@ describe.each([
   });
 
   it('promotes by role with a JSON body (default method)', async () => {
-    const res = await request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({});
+    const res = await request(await listen(app)).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, method: 'role' });
     expect(rbacStore.createRole).toHaveBeenCalledWith('admin');
@@ -70,14 +71,15 @@ describe.each([
   });
 
   it('promotes by flag', async () => {
-    const res = await request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({ method: 'flag' });
+    const res = await request(await listen(app)).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({ method: 'flag' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, method: 'flag' });
     expect((await userStore.findById(targetId))?.isAdmin).toBe(true);
   });
 
   it('answers 400 to an unknown method and assigns nothing', async () => {
-    const promote = () => request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`);
+    const server = await listen(app);
+    const promote = () => request(server).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`);
     for (const method of ['Flag', 'ROLE', 'both', 'xyz', '', 123, true, ['flag'], { flag: true }]) {
       const res = await promote().send({ method });
       expect(res.status).toBe(400);
@@ -89,21 +91,22 @@ describe.each([
   });
 
   it('treats a null method as the default (role)', async () => {
-    const res = await request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({ method: null });
+    const res = await request(await listen(app)).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`).send({ method: null });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, method: 'role' });
     expect(rbacStore.addRoleToUser).toHaveBeenCalledWith(targetId, 'admin');
   });
 
   it('answers 401 without a session, after the rate limiter', async () => {
-    const res = await request(app).post(promotePath(targetId)).send({});
+    const res = await request(await listen(app)).post(promotePath(targetId)).send({});
     expect(res.status).toBe(401);
     expect(rateLimiter).toHaveBeenCalledTimes(1);
     expect(rbacStore.addRoleToUser).not.toHaveBeenCalled();
   });
 
   it('answers 415 to a body that is not JSON, and assigns nothing', async () => {
-    const promote = () => request(app).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`);
+    const server = await listen(app);
+    const promote = () => request(server).post(promotePath(targetId)).set('Authorization', `Bearer ${adminToken}`);
     for (const res of [
       await promote().set('Content-Type', 'application/x-www-form-urlencoded').send(''),
       await promote().set('Content-Type', 'text/plain').send('{"method":"role"}'),

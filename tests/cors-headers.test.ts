@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { PasswordService } from '../src/services/password.service';
 import { InMemoryUserStore } from '../examples/in-memory-user-store';
@@ -27,7 +28,7 @@ async function buildApp(): Promise<express.Application> {
 describe('auth router CORS', () => {
   it('the preflight allows X-Auth-Strategy', async () => {
     const app = await buildApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .options('/auth/login')
       .set('Origin', origin)
       .set('Access-Control-Request-Method', 'POST')
@@ -39,7 +40,7 @@ describe('auth router CORS', () => {
 
   it('a cross-origin bearer login gets the CORS headers and the tokens in the body', async () => {
     const app = await buildApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/login')
       .set('Origin', origin)
       .set('X-Auth-Strategy', 'bearer')
@@ -52,7 +53,7 @@ describe('auth router CORS', () => {
 
   it('an unlisted origin still gets no CORS headers', async () => {
     const app = await buildApp();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .options('/auth/login')
       .set('Origin', 'https://evil.example.com')
       .set('Access-Control-Request-Method', 'POST')

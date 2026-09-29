@@ -28,6 +28,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 import { AuthConfigurator, createAdminRouter, PasswordService, AuthError } from '../src/index';
 import type { AuthConfig } from '../src/index';
@@ -384,34 +385,34 @@ describe('examples/in-memory-user-store — Integration with AuthConfigurator', 
 
   it('full flow: register → login → GET /auth/me → logout → GET /auth/me returns 403', async () => {
     // Register
-    const reg = await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+    const reg = await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
     expect(reg.status).toBe(201);
 
     // Login
-    const login = await request(app).post('/auth/login').send({ email: 'alice@example.com', password: 'secret123' });
+    const login = await request(await listen(app)).post('/auth/login').send({ email: 'alice@example.com', password: 'secret123' });
     expect(login.status).toBe(200);
     const cookies = login.headers['set-cookie'] as string[];
     expect(cookies.some((c: string) => c.startsWith('accessToken='))).toBe(true);
 
     // GET /auth/me (protected) — succeeds
-    const me = await request(app).get('/auth/me').set('Cookie', cookies);
+    const me = await request(await listen(app)).get('/auth/me').set('Cookie', cookies);
     expect(me.status).toBe(200);
     expect(me.body.email).toBe('alice@example.com');
 
     // Logout
-    const logout = await request(app).post('/auth/logout').set('Cookie', cookies);
+    const logout = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
     expect(logout.status).toBe(200);
 
     // GET /auth/me after logout — 403
-    const afterLogout = await request(app)
+    const afterLogout = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', logout.headers['set-cookie'] as string[]);
     expect(afterLogout.status).toBe(403);
   });
 
   it('admin GET /api/users lists registered users', async () => {
-    await request(app).post('/auth/register').send({ email: 'bob@example.com', password: 'pass123' });
-    const res = await request(app)
+    await request(await listen(app)).post('/auth/register').send({ email: 'bob@example.com', password: 'pass123' });
+    const res = await request(await listen(app))
       .get('/admin/api/users')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -419,10 +420,10 @@ describe('examples/in-memory-user-store — Integration with AuthConfigurator', 
   });
 
   it('refresh token renews access token', async () => {
-    await request(app).post('/auth/register').send({ email: 'carol@example.com', password: 'pass123' });
-    const login = await request(app).post('/auth/login').send({ email: 'carol@example.com', password: 'pass123' });
+    await request(await listen(app)).post('/auth/register').send({ email: 'carol@example.com', password: 'pass123' });
+    const login = await request(await listen(app)).post('/auth/login').send({ email: 'carol@example.com', password: 'pass123' });
     const cookies = login.headers['set-cookie'] as string[];
-    const refresh = await request(app).post('/auth/refresh').set('Cookie', cookies);
+    const refresh = await request(await listen(app)).post('/auth/refresh').set('Cookie', cookies);
     expect(refresh.status).toBe(200);
     expect(refresh.body.success).toBe(true);
   });

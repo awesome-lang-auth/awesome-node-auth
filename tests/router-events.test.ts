@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter, encodeOAuthState } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
 import { AuthConfigurator } from '../src/auth-configurator';
@@ -70,9 +71,9 @@ describe('router event payloads', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(new InMemoryUserStore(), config, { eventBus: bus }));
 
-    await request(app).post('/auth/login').send({ email: { nested: 'y'.repeat(2000) }, password: 'p' });
-    await request(app).post('/auth/login').send({ email: `${'a'.repeat(400)}@x.test`, password: 'p' });
-    await request(app).post('/auth/login').send({ email: 'nobody@x.test', password: 'p' });
+    await request(await listen(app)).post('/auth/login').send({ email: { nested: 'y'.repeat(2000) }, password: 'p' });
+    await request(await listen(app)).post('/auth/login').send({ email: `${'a'.repeat(400)}@x.test`, password: 'p' });
+    await request(await listen(app)).post('/auth/login').send({ email: 'nobody@x.test', password: 'p' });
 
     const failed = seen.filter((e) => e.event === AuthEventNames.AUTH_LOGIN_FAILED);
     expect(failed).toHaveLength(3);
@@ -89,8 +90,8 @@ describe('router event payloads', () => {
     app.use('/auth', createAuthRouter(new InMemoryUserStore(), config, { eventBus: bus, defaultRegister: true }));
 
     const longEmail = `${'q'.repeat(9990)}@x.test`;
-    const res = await request(app).post('/auth/register').send({ email: longEmail, password: 'pw-123456' });
-    const short = await request(app).post('/auth/register').send({ email: 'short@x.test', password: 'pw-123456' });
+    const res = await request(await listen(app)).post('/auth/register').send({ email: longEmail, password: 'pw-123456' });
+    const short = await request(await listen(app)).post('/auth/register').send({ email: 'short@x.test', password: 'pw-123456' });
 
     expect(res.status).toBe(201);
     expect(short.status).toBe(201);
@@ -107,7 +108,8 @@ describe('router event payloads', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(new InMemoryUserStore(), config, { eventBus: bus }));
 
-    const send = (id: string) => request(app).post('/auth/login')
+    const server = await listen(app);
+    const send = (id: string) => request(server).post('/auth/login')
       .set('X-Correlation-Id', id)
       .send({ email: 'nobody@x.test', password: 'p' });
     await send('req-2f1c:9a.b_7');
@@ -148,7 +150,7 @@ describe('router event payloads', () => {
     }));
 
     const state = encodeOAuthState('event-nonce', 'http://localhost:3000', undefined, undefined, config.accessTokenSecret);
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/fakeprovider/callback?code=fake-code&state=${state}`)
       .set('Cookie', 'oauth_nonce_fakeprovider=event-nonce');
 
@@ -173,9 +175,9 @@ describe('router event payloads', () => {
     const token = tokenService.generateTokenPair({ sub: admin.id, email: admin.email }, config).accessToken;
     const cookie = `accessToken=${token}`;
 
-    expect((await request(app).post('/admin/users/u-9/promote').set('Cookie', cookie).send({})).status).toBe(200);
-    expect((await request(app).post('/admin/api/users/u-9/roles').set('Cookie', cookie).send({ role: 'editor' })).status).toBe(200);
-    expect((await request(app).delete('/admin/api/users/u-9/roles/editor').set('Cookie', cookie)).status).toBe(200);
+    expect((await request(await listen(app)).post('/admin/users/u-9/promote').set('Cookie', cookie).send({})).status).toBe(200);
+    expect((await request(await listen(app)).post('/admin/api/users/u-9/roles').set('Cookie', cookie).send({ role: 'editor' })).status).toBe(200);
+    expect((await request(await listen(app)).delete('/admin/api/users/u-9/roles/editor').set('Cookie', cookie)).status).toBe(200);
 
     expect(seen.map((e) => [e.event, e.userId, e.data])).toEqual([
       [AuthEventNames.ROLE_ASSIGNED, 'u-9', { role: 'admin', method: 'role', actorId: admin.id }],
@@ -201,7 +203,7 @@ describe('router event payloads', () => {
       eventBus: bus,
       silent: true,
     }));
-    const viaSecret = await request(secretApp)
+    const viaSecret = await request(await listen(secretApp))
       .post('/admin/users/u-10/promote')
       .set('Authorization', 'Bearer the-admin-secret')
       .send({});
@@ -215,7 +217,7 @@ describe('router event payloads', () => {
       eventBus: bus,
       silent: true,
     }));
-    const viaOpen = await request(openApp).post('/admin/users/u-11/promote').send({});
+    const viaOpen = await request(await listen(openApp)).post('/admin/users/u-11/promote').send({});
     expect(viaOpen.status).toBe(200);
 
     expect(seen.map((e) => [e.userId, e.data])).toEqual([
@@ -236,14 +238,14 @@ describe('router event payloads', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(store, config, { eventBus: bus }));
 
-    const login = await request(app)
+    const login = await request(await listen(app))
       .post('/auth/login')
       .set('X-Auth-Strategy', 'bearer')
       .send({ email: 'user@x.test', password: 'password123' });
     expect(login.status).toBe(200);
     expect(typeof login.body.accessToken).toBe('string');
 
-    const changed = await request(app)
+    const changed = await request(await listen(app))
       .post('/auth/change-password')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
       .send({ currentPassword: 'password123', newPassword: 'password456' });

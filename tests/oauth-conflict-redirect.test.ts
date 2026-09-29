@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { IUserStore } from '../src/interfaces/user-store.interface';
 import { BaseUser } from '../src/models/user.model';
@@ -102,14 +103,14 @@ describe('Issue #15: OAuth account conflict redirect path pollution fix', () => 
     }));
 
     // Initiate OAuth flow with return_path = /dashboard/profile
-    const initRes = await request(app).get('/auth/oauth/google?return_path=/dashboard/profile');
+    const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/dashboard/profile');
     expect(initRes.status).toBe(302);
     const location = new URL(initRes.headers['location'] as string);
     const state = location.searchParams.get('state')!;
     const cookieNonce = parseCookie(initRes, 'oauth_nonce_google');
 
     // Callback triggers conflict
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/google/callback?code=abc&state=${encodeURIComponent(state)}`)
       .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -133,13 +134,13 @@ describe('Issue #15: OAuth account conflict redirect path pollution fix', () => 
       githubStrategy: new ConflictGithubStrategy(oauthConfig),
     }));
 
-    const initRes = await request(app).get('/auth/oauth/github?return_path=/user/settings');
+    const initRes = await request(await listen(app)).get('/auth/oauth/github?return_path=/user/settings');
     expect(initRes.status).toBe(302);
     const location = new URL(initRes.headers['location'] as string);
     const state = location.searchParams.get('state')!;
     const cookieNonce = parseCookie(initRes, 'oauth_nonce_github');
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/github/callback?code=abc&state=${encodeURIComponent(state)}`)
       .set('Cookie', `oauth_nonce_github=${cookieNonce}`);
 
@@ -158,13 +159,13 @@ describe('Issue #15: OAuth account conflict redirect path pollution fix', () => 
       oauthStrategies: [new ConflictDiscordStrategy(discordCfg)],
     }));
 
-    const initRes = await request(app).get('/auth/oauth/discord?return_path=/guild/settings');
+    const initRes = await request(await listen(app)).get('/auth/oauth/discord?return_path=/guild/settings');
     expect(initRes.status).toBe(302);
     const location = new URL(initRes.headers['location'] as string);
     const state = location.searchParams.get('state')!;
     const cookieNonce = parseCookie(initRes, 'oauth_nonce_discord');
 
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get(`/auth/oauth/discord/callback?code=abc&state=${encodeURIComponent(state)}`)
       .set('Cookie', `oauth_nonce_discord=${cookieNonce}`);
 

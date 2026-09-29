@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { AuthConfig } from '../src/models/auth-config.model';
 import { IPendingLinkStore } from '../src/interfaces/pending-link-store.interface';
@@ -44,7 +45,7 @@ describe('POST /link-request with csrf.enabled', () => {
   });
 
   async function cookieLogin(): Promise<{ cookies: string; csrf: string }> {
-    const res = await request(app).post('/auth/login').send({ email: 'user@example.com', password: 'pw' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'user@example.com', password: 'pw' });
     expect(res.status).toBe(200);
     // Like a browser: a cookie set twice in one response keeps the last value
     // (login sets csrf-token on arrival and again with the session).
@@ -59,11 +60,11 @@ describe('POST /link-request with csrf.enabled', () => {
   }
 
   it('a bearer request needs no CSRF token', async () => {
-    const login = await request(app)
+    const login = await request(await listen(app))
       .post('/auth/login')
       .set('X-Auth-Strategy', 'bearer')
       .send({ email: 'user@example.com', password: 'pw' });
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Authorization', `Bearer ${login.body.accessToken}`)
       .send({ email: 'second@example.com' });
@@ -75,7 +76,7 @@ describe('POST /link-request with csrf.enabled', () => {
 
   it('a cookie-authenticated request without the CSRF header is 403 CSRF_INVALID', async () => {
     const { cookies } = await cookieLogin();
-    const res = await request(app).post('/auth/link-request').set('Cookie', cookies).send({ email: 'second@example.com' });
+    const res = await request(await listen(app)).post('/auth/link-request').set('Cookie', cookies).send({ email: 'second@example.com' });
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: 'CSRF validation failed', code: 'CSRF_INVALID' });
     expect(sendVerificationEmail).not.toHaveBeenCalled();
@@ -83,7 +84,7 @@ describe('POST /link-request with csrf.enabled', () => {
 
   it('a cookie-authenticated request with the matching CSRF header succeeds', async () => {
     const { cookies, csrf } = await cookieLogin();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Cookie', cookies)
       .set('X-CSRF-Token', csrf)
@@ -93,7 +94,7 @@ describe('POST /link-request with csrf.enabled', () => {
 
   it('an invalid bearer token with a valid session cookie and no CSRF header does not act on the cookie session', async () => {
     const { cookies } = await cookieLogin();
-    const res = await request(app)
+    const res = await request(await listen(app))
       .post('/auth/link-request')
       .set('Cookie', cookies)
       .set('Authorization', 'Bearer not-a-jwt')
@@ -103,7 +104,7 @@ describe('POST /link-request with csrf.enabled', () => {
   });
 
   it('an anonymous conflict-linking request without the CSRF header is 403 CSRF_INVALID', async () => {
-    const res = await request(app).post('/auth/link-request').send({ email: 'user@example.com', provider: 'github' });
+    const res = await request(await listen(app)).post('/auth/link-request').send({ email: 'user@example.com', provider: 'github' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('CSRF_INVALID');
   });

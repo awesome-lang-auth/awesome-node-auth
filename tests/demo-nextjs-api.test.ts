@@ -28,6 +28,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 import { AuthConfigurator, createAdminRouter, PasswordService, AuthError } from '../src/index';
 import type { AuthConfig, IUserStore, BaseUser } from '../src/index';
@@ -194,8 +195,8 @@ function createNextjsDemoApp() {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async function registerAndLogin(app: express.Application, email = 'alice@example.com', password = 'secret123') {
-  await request(app).post('/api/auth/register').send({ email, password });
-  const res = await request(app).post('/api/auth/login').send({ email, password });
+  await request(await listen(app)).post('/api/auth/register').send({ email, password });
+  const res = await request(await listen(app)).post('/api/auth/login').send({ email, password });
   const raw: string[] | string | undefined = res.headers['set-cookie'];
   return { cookies: Array.isArray(raw) ? raw : raw ? [raw] : [] };
 }
@@ -213,7 +214,7 @@ describe('Demo Next.js API handlers', () => {
 
   describe('POST /api/auth/register', () => {
     it('creates a new user and returns 201', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/api/auth/register')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(201);
@@ -221,15 +222,15 @@ describe('Demo Next.js API handlers', () => {
     });
 
     it('returns 409 for duplicate email', async () => {
-      await request(app).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/api/auth/register')
         .send({ email: 'alice@example.com', password: 'other' });
       expect(res.status).toBe(409);
     });
 
     it('returns 400 when email is missing', async () => {
-      const res = await request(app).post('/api/auth/register').send({ password: 'secret123' });
+      const res = await request(await listen(app)).post('/api/auth/register').send({ password: 'secret123' });
       expect(res.status).toBe(400);
     });
   });
@@ -238,8 +239,8 @@ describe('Demo Next.js API handlers', () => {
 
   describe('POST /api/auth/login', () => {
     it('returns 200 and sets HttpOnly cookies', async () => {
-      await request(app).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/api/auth/login')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(200);
@@ -250,8 +251,8 @@ describe('Demo Next.js API handlers', () => {
     });
 
     it('returns 401 for wrong password', async () => {
-      await request(app).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/api/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/api/auth/login')
         .send({ email: 'alice@example.com', password: 'wrong' });
       expect(res.status).toBe(401);
@@ -262,19 +263,19 @@ describe('Demo Next.js API handlers', () => {
 
   describe('GET /api/auth/me (protected)', () => {
     it('returns 403 without token', async () => {
-      const res = await request(app).get('/api/auth/me');
+      const res = await request(await listen(app)).get('/api/auth/me');
       expect(res.status).toBe(403);
     });
 
     it('returns the user when accessToken cookie is valid', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app).get('/api/auth/me').set('Cookie', cookies);
+      const res = await request(await listen(app)).get('/api/auth/me').set('Cookie', cookies);
       expect(res.status).toBe(200);
       expect(res.body.email).toBe('alice@example.com');
     });
 
     it('returns 403 with a tampered cookie', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/api/auth/me')
         .set('Cookie', ['accessToken=bad.jwt.token']);
       expect(res.status).toBe(403);
@@ -286,7 +287,7 @@ describe('Demo Next.js API handlers', () => {
   describe('POST /api/auth/refresh', () => {
     it('issues a new accessToken when refreshToken is valid', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/api/auth/refresh')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -294,7 +295,7 @@ describe('Demo Next.js API handlers', () => {
     });
 
     it('returns 401 without a refresh token', async () => {
-      const res = await request(app).post('/api/auth/refresh');
+      const res = await request(await listen(app)).post('/api/auth/refresh');
       expect(res.status).toBe(401);
     });
   });
@@ -304,7 +305,7 @@ describe('Demo Next.js API handlers', () => {
   describe('POST /api/auth/logout', () => {
     it('clears auth cookies and returns 200', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/api/auth/logout')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -314,9 +315,9 @@ describe('Demo Next.js API handlers', () => {
 
     it('GET /api/auth/me returns 403 after logout', async () => {
       const { cookies } = await registerAndLogin(app);
-      const logoutRes = await request(app).post('/api/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/api/auth/logout').set('Cookie', cookies);
       const clearedCookies = logoutRes.headers['set-cookie'] as string[];
-      const res = await request(app).get('/api/auth/me').set('Cookie', clearedCookies);
+      const res = await request(await listen(app)).get('/api/auth/me').set('Cookie', clearedCookies);
       expect(res.status).toBe(403);
     });
   });
@@ -325,13 +326,13 @@ describe('Demo Next.js API handlers', () => {
 
   describe('Admin panel (/api/admin)', () => {
     it('GET /api/admin/api/users returns 401 without credentials', async () => {
-      const res = await request(app).get('/api/admin/api/users');
+      const res = await request(await listen(app)).get('/api/admin/api/users');
       expect(res.status).toBe(401);
     });
 
     it('GET /api/admin/api/users lists users with admin credentials', async () => {
-      await request(app).post('/api/auth/register').send({ email: 'eve@example.com', password: 'pass123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/api/auth/register').send({ email: 'eve@example.com', password: 'pass123' });
+      const res = await request(await listen(app))
         .get('/api/admin/api/users')
         .set('Authorization', `Bearer ${ADMIN_SECRET}`);
       expect(res.status).toBe(200);
@@ -347,8 +348,8 @@ describe('Demo Next.js API handlers', () => {
 
   describe('Dashboard protection logic (JWT verification)', () => {
     it('accessToken set by login is a valid compact JWT', async () => {
-      await request(app).post('/api/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
-      const loginRes = await request(app)
+      await request(await listen(app)).post('/api/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
+      const loginRes = await request(await listen(app))
         .post('/api/auth/login')
         .send({ email: 'dave@example.com', password: 'pass123' });
       const cookies = loginRes.headers['set-cookie'] as string[];
@@ -366,7 +367,7 @@ describe('Demo Next.js API handlers', () => {
 
     it('after logout the accessToken cookie is cleared', async () => {
       const { cookies } = await registerAndLogin(app, 'frank@example.com', 'pass123');
-      const logoutRes = await request(app).post('/api/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/api/auth/logout').set('Cookie', cookies);
       const clearedCookies = logoutRes.headers['set-cookie'] as string[];
       const tokenCookie = clearedCookies.find((c: string) => c.startsWith('accessToken='));
       expect(tokenCookie).toBeDefined();

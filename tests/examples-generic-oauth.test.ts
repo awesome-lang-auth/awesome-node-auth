@@ -24,6 +24,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 
 import {
   createAuthRouter,
@@ -141,8 +142,8 @@ async function registerAndLogin(
   email = 'alice@example.com',
   password = 'secret123',
 ) {
-  await request(app).post('/auth/register').send({ email, password });
-  const res = await request(app).post('/auth/login').send({ email, password });
+  await request(await listen(app)).post('/auth/register').send({ email, password });
+  const res = await request(await listen(app)).post('/auth/login').send({ email, password });
   const raw: string[] | string | undefined = res.headers['set-cookie'];
   return { cookies: Array.isArray(raw) ? raw : raw ? [raw] : [] };
 }
@@ -187,7 +188,7 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
   describe('POST /auth/register', () => {
     it('creates a new user and returns 201', async () => {
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(201);
@@ -195,15 +196,15 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
     });
 
     it('returns 409 for duplicate email', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/register')
         .send({ email: 'alice@example.com', password: 'other' });
       expect(res.status).toBe(409);
     });
 
     it('returns 400 for missing fields', async () => {
-      const res = await request(app).post('/auth/register').send({ email: 'alice@example.com' });
+      const res = await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com' });
       expect(res.status).toBe(400);
     });
   });
@@ -212,8 +213,8 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
   describe('POST /auth/login', () => {
     it('returns 200 and sets HttpOnly JWT cookies', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'alice@example.com', password: 'secret123' });
       expect(res.status).toBe(200);
@@ -223,8 +224,8 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
     });
 
     it('returns 401 for wrong password', async () => {
-      await request(app).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
-      const res = await request(app)
+      await request(await listen(app)).post('/auth/register').send({ email: 'alice@example.com', password: 'secret123' });
+      const res = await request(await listen(app))
         .post('/auth/login')
         .send({ email: 'alice@example.com', password: 'wrong' });
       expect(res.status).toBe(401);
@@ -235,13 +236,13 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
   describe('GET /auth/me', () => {
     it('returns 403 without token', async () => {
-      const res = await request(app).get('/auth/me');
+      const res = await request(await listen(app)).get('/auth/me');
       expect(res.status).toBe(403);
     });
 
     it('returns user with valid token', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app).get('/auth/me').set('Cookie', cookies);
+      const res = await request(await listen(app)).get('/auth/me').set('Cookie', cookies);
       expect(res.status).toBe(200);
       expect(res.body.email).toBe('alice@example.com');
     });
@@ -252,13 +253,13 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
   describe('POST /auth/refresh', () => {
     it('issues a new access token', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app).post('/auth/refresh').set('Cookie', cookies);
+      const res = await request(await listen(app)).post('/auth/refresh').set('Cookie', cookies);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it('returns 401 without refresh token', async () => {
-      const res = await request(app).post('/auth/refresh');
+      const res = await request(await listen(app)).post('/auth/refresh');
       expect(res.status).toBe(401);
     });
   });
@@ -268,7 +269,7 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
   describe('POST /auth/logout', () => {
     it('clears auth cookies and returns 200', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app).post('/auth/logout').set('Cookie', cookies);
+      const res = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
       expect(res.status).toBe(200);
       const cleared = res.headers['set-cookie'] as string[];
       expect(cleared.some((c: string) => c.startsWith('accessToken=') && (c.includes('Max-Age=0') || c.includes('Expires=')))).toBe(true);
@@ -276,9 +277,9 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
     it('GET /auth/me returns 403 after logout', async () => {
       const { cookies } = await registerAndLogin(app);
-      const logoutRes = await request(app).post('/auth/logout').set('Cookie', cookies);
+      const logoutRes = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
       const clearedCookies = logoutRes.headers['set-cookie'] as string[];
-      const res = await request(app).get('/auth/me').set('Cookie', clearedCookies);
+      const res = await request(await listen(app)).get('/auth/me').set('Cookie', clearedCookies);
       expect(res.status).toBe(403);
     });
   });
@@ -287,13 +288,13 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
   describe('GET /auth/linked-accounts', () => {
     it('returns 403 without token', async () => {
-      const res = await request(app).get('/auth/linked-accounts');
+      const res = await request(await listen(app)).get('/auth/linked-accounts');
       expect(res.status).toBe(403);
     });
 
     it('returns an empty array for a new user with no linked accounts', async () => {
       const { cookies } = await registerAndLogin(app);
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get('/auth/linked-accounts')
         .set('Cookie', cookies);
       expect(res.status).toBe(200);
@@ -305,7 +306,7 @@ describe('examples/generic-oauth-and-linking — auth endpoints', () => {
 
   describe('GET /auth/oauth/discord', () => {
     it('redirects to Discord authorization URL', async () => {
-      const res = await request(app).get('/auth/oauth/discord');
+      const res = await request(await listen(app)).get('/auth/oauth/discord');
       // Without real credentials the redirect still points at Discord
       expect([302, 301]).toContain(res.status);
       if (res.headers.location) {
@@ -326,13 +327,13 @@ describe('examples/generic-oauth-and-linking — admin panel', () => {
   });
 
   it('GET /admin/api/users returns 401 without credentials', async () => {
-    const res = await request(app).get('/admin/api/users');
+    const res = await request(await listen(app)).get('/admin/api/users');
     expect(res.status).toBe(401);
   });
 
   it('GET /admin/api/users returns user list with valid Bearer token', async () => {
-    await request(app).post('/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
-    const res = await request(app)
+    await request(await listen(app)).post('/auth/register').send({ email: 'dave@example.com', password: 'pass123' });
+    const res = await request(await listen(app))
       .get('/admin/api/users')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -340,14 +341,14 @@ describe('examples/generic-oauth-and-linking — admin panel', () => {
   });
 
   it('GET /admin/api/users returns 403 with wrong secret', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/users')
       .set('Authorization', 'Bearer wrongsecret');
     expect(res.status).toBe(403);
   });
 
   it('GET /admin/api/settings returns current settings', async () => {
-    const res = await request(app)
+    const res = await request(await listen(app))
       .get('/admin/api/settings')
       .set('Authorization', `Bearer ${ADMIN_SECRET}`);
     expect(res.status).toBe(200);
@@ -369,29 +370,29 @@ describe('examples/generic-oauth-and-linking — full flow', () => {
     const { app } = createExampleApp();
 
     // 1. Register
-    const reg = await request(app).post('/auth/register').send({ email: 'eve@example.com', password: 'pass123' });
+    const reg = await request(await listen(app)).post('/auth/register').send({ email: 'eve@example.com', password: 'pass123' });
     expect(reg.status).toBe(201);
 
     // 2. Login
-    const login = await request(app).post('/auth/login').send({ email: 'eve@example.com', password: 'pass123' });
+    const login = await request(await listen(app)).post('/auth/login').send({ email: 'eve@example.com', password: 'pass123' });
     expect(login.status).toBe(200);
     const cookies = login.headers['set-cookie'] as string[];
 
     // 3. Check linked accounts (empty for password user)
-    const linked = await request(app).get('/auth/linked-accounts').set('Cookie', cookies);
+    const linked = await request(await listen(app)).get('/auth/linked-accounts').set('Cookie', cookies);
     expect(linked.status).toBe(200);
 
     // 4. Verify identity
-    const me = await request(app).get('/auth/me').set('Cookie', cookies);
+    const me = await request(await listen(app)).get('/auth/me').set('Cookie', cookies);
     expect(me.status).toBe(200);
     expect(me.body.email).toBe('eve@example.com');
 
     // 5. Logout
-    const logout = await request(app).post('/auth/logout').set('Cookie', cookies);
+    const logout = await request(await listen(app)).post('/auth/logout').set('Cookie', cookies);
     expect(logout.status).toBe(200);
 
     // 6. Protected endpoint now 403
-    const after = await request(app)
+    const after = await request(await listen(app))
       .get('/auth/me')
       .set('Cookie', logout.headers['set-cookie'] as string[]);
     expect(after.status).toBe(403);

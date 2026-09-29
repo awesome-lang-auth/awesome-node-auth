@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { createAuthRouter } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
 import { buildAuthOpenApiSpec, buildAdminOpenApiSpec } from '../src/router/openapi';
@@ -107,7 +108,7 @@ describe('buildAuthOpenApiSpec', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(userStore, config, { swagger: true, defaultRegister: true }));
 
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
 
     expect(res.status).toBe(200);
     expect(res.body.paths['/auth/register']).toBeDefined();
@@ -239,7 +240,7 @@ describe('buildAdminOpenApiSpec', () => {
 describe('createAuthRouter — swagger routes', () => {
   it('serves GET /auth/openapi.json when swagger=true', async () => {
     const app = buildAuthApp(true);
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.openapi).toBe('3.0.3');
     expect(res.body.paths['/auth/login']).toBeDefined();
@@ -247,26 +248,26 @@ describe('createAuthRouter — swagger routes', () => {
 
   it('serves GET /auth/docs HTML when swagger=true', async () => {
     const app = buildAuthApp(true);
-    const res = await request(app).get('/auth/docs');
+    const res = await request(await listen(app)).get('/auth/docs');
     expect(res.status).toBe(200);
     expect(res.text).toContain('swagger-ui');
   });
 
   it('returns 404 for /auth/openapi.json when swagger=false', async () => {
     const app = buildAuthApp(false);
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
     expect(res.status).toBe(404);
   });
 
   it('enables swagger in development when swagger=auto', async () => {
     const app = buildAuthApp('auto', 'development');
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
     expect(res.status).toBe(200);
   });
 
   it('disables swagger in production when swagger=auto', async () => {
     const app = buildAuthApp('auto', 'production');
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
     expect(res.status).toBe(404);
   });
 
@@ -280,7 +281,7 @@ describe('createAuthRouter — swagger routes', () => {
         swagger: true,
         onRegister: async () => ({ id: '1', email: 'x@x.com' }),
       }));
-      const res = await request(app).get('/auth/openapi.json');
+      const res = await request(await listen(app)).get('/auth/openapi.json');
       expect(res.status).toBe(200);
       expect(res.body.paths['/auth/register']).toBeDefined();
     } finally {
@@ -290,7 +291,7 @@ describe('createAuthRouter — swagger routes', () => {
 
   it('spec does not include register path when onRegister is absent', async () => {
     const app = buildAuthApp(true);
-    const res = await request(app).get('/auth/openapi.json');
+    const res = await request(await listen(app)).get('/auth/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.paths['/auth/register']).toBeUndefined();
   });
@@ -302,7 +303,7 @@ describe('createAuthRouter — swagger routes', () => {
 describe('createAdminRouter — swagger routes', () => {
   it('serves GET /admin/api/openapi.json when swagger=true', async () => {
     const app = buildAdminApp(true);
-    const res = await request(app).get('/admin/api/openapi.json');
+    const res = await request(await listen(app)).get('/admin/api/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.openapi).toBe('3.0.3');
     expect(res.body.paths['/admin/api/users']).toBeDefined();
@@ -310,26 +311,26 @@ describe('createAdminRouter — swagger routes', () => {
 
   it('serves GET /admin/api/docs HTML when swagger=true', async () => {
     const app = buildAdminApp(true);
-    const res = await request(app).get('/admin/api/docs');
+    const res = await request(await listen(app)).get('/admin/api/docs');
     expect(res.status).toBe(200);
     expect(res.text).toContain('swagger-ui');
   });
 
   it('returns 404 for /admin/api/openapi.json when swagger=false', async () => {
     const app = buildAdminApp(false);
-    const res = await request(app).get('/admin/api/openapi.json');
+    const res = await request(await listen(app)).get('/admin/api/openapi.json');
     expect(res.status).toBe(404);
   });
 
   it('enables swagger in development when swagger=auto', async () => {
     const app = buildAdminApp('auto', 'development');
-    const res = await request(app).get('/admin/api/openapi.json');
+    const res = await request(await listen(app)).get('/admin/api/openapi.json');
     expect(res.status).toBe(200);
   });
 
   it('disables swagger in production when swagger=auto', async () => {
     const app = buildAdminApp('auto', 'production');
-    const res = await request(app).get('/admin/api/openapi.json');
+    const res = await request(await listen(app)).get('/admin/api/openapi.json');
     expect(res.status).toBe(404);
   });
 
@@ -349,7 +350,7 @@ describe('createAdminRouter — swagger routes', () => {
         swagger: true,
         sessionStore: mockSession as never,
       }));
-      const res = await request(app).get('/admin/api/openapi.json');
+      const res = await request(await listen(app)).get('/admin/api/openapi.json');
       expect(res.status).toBe(200);
       expect(res.body.paths['/admin/api/sessions']).toBeDefined();
     } finally {
@@ -359,7 +360,7 @@ describe('createAdminRouter — swagger routes', () => {
 
   it('spec does not include sessions when sessionStore is absent', async () => {
     const app = buildAdminApp(true);
-    const res = await request(app).get('/admin/api/openapi.json');
+    const res = await request(await listen(app)).get('/admin/api/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.paths['/admin/api/sessions']).toBeUndefined();
   });

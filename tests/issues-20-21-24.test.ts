@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express, { Request, Response } from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import jwt from 'jsonwebtoken';
 import { createAuthRouter, performSendVerificationEmail } from '../src/router/auth.router';
 import { createAdminRouter } from '../src/router/admin.router';
@@ -78,7 +79,7 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /send-verification-email with no body succeeds with 200', async () => {
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/send-verification-email')
         .set('Authorization', `Bearer ${userToken}`);
 
@@ -89,7 +90,7 @@ describe('Issues #20, #21, #24 Tests', () => {
     it('PATCH /profile with no body succeeds with 200', async () => {
       userStore.updateProfile = vi.fn().mockResolvedValue(undefined);
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .patch('/auth/profile')
         .set('Authorization', `Bearer ${userToken}`);
 
@@ -99,7 +100,7 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /logout with no body succeeds with 200', async () => {
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/logout')
         .set('Authorization', `Bearer ${userToken}`);
 
@@ -109,28 +110,28 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /login with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/login');
+      const res = await request(await listen(app)).post('/auth/login');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Email and password are required');
     });
 
     it('POST /register with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/register');
+      const res = await request(await listen(app)).post('/auth/register');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Email and password are required');
     });
 
     it('POST /forgot-password with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/forgot-password');
+      const res = await request(await listen(app)).post('/auth/forgot-password');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Email is required');
     });
 
     it('POST /reset-password with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/reset-password');
+      const res = await request(await listen(app)).post('/auth/reset-password');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Token and password are required');
     });
@@ -138,7 +139,7 @@ describe('Issues #20, #21, #24 Tests', () => {
     it('POST /add-phone with no body returns 400 (not 500)', async () => {
       userStore.updatePhoneNumber = vi.fn().mockResolvedValue(undefined);
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/add-phone')
         .set('Authorization', `Bearer ${userToken}`);
       expect(res.status).toBe(400);
@@ -147,7 +148,7 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /change-password with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/change-password')
         .set('Authorization', `Bearer ${userToken}`);
       expect(res.status).toBe(400);
@@ -156,7 +157,7 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /change-email/request with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/change-email/request')
         .set('Authorization', `Bearer ${userToken}`);
       expect(res.status).toBe(400);
@@ -165,14 +166,14 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /change-email/confirm with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/change-email/confirm');
+      const res = await request(await listen(app)).post('/auth/change-email/confirm');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('token is required');
     });
 
     it('POST /2fa/verify-setup with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/auth/2fa/verify-setup')
         .set('Authorization', `Bearer ${userToken}`);
       expect(res.status).toBe(400);
@@ -181,35 +182,35 @@ describe('Issues #20, #21, #24 Tests', () => {
 
     it('POST /2fa/verify with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/2fa/verify');
+      const res = await request(await listen(app)).post('/auth/2fa/verify');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Temp token and TOTP code are required');
     });
 
     it('POST /magic-link/send with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/magic-link/send');
+      const res = await request(await listen(app)).post('/auth/magic-link/send');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('email is required');
     });
 
     it('POST /magic-link/verify with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/magic-link/verify');
+      const res = await request(await listen(app)).post('/auth/magic-link/verify');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('token is required');
     });
 
     it('POST /sms/send with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/sms/send');
+      const res = await request(await listen(app)).post('/auth/sms/send');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('userId or email is required');
     });
 
     it('POST /sms/verify with no body returns 400 (not 500)', async () => {
       const app = setupAuthApp();
-      const res = await request(app).post('/auth/sms/verify');
+      const res = await request(await listen(app)).post('/auth/sms/verify');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('code is required');
     });
@@ -221,7 +222,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         linkAccount: vi.fn().mockResolvedValue(undefined),
       };
       const app = setupAuthApp({ linkedAccountsStore: mockLinkedAccountsStore });
-      const res = await request(app).post('/auth/link-request');
+      const res = await request(await listen(app)).post('/auth/link-request');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('email is required');
     });
@@ -233,7 +234,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         linkAccount: vi.fn().mockResolvedValue(undefined),
       };
       const app = setupAuthApp({ linkedAccountsStore: mockLinkedAccountsStore });
-      const res = await request(app).post('/auth/link-verify');
+      const res = await request(await listen(app)).post('/auth/link-verify');
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('token is required');
     });
@@ -244,10 +245,10 @@ describe('Issues #20, #21, #24 Tests', () => {
       const tools = new AuthTools(eventBus, { sse: true });
       app.use('/tools', createToolsRouter(tools, { telemetry: true, notify: true }));
 
-      const trackRes = await request(app).post('/tools/track/user.signup');
+      const trackRes = await request(await listen(app)).post('/tools/track/user.signup');
       expect(trackRes.status).toBe(202);
 
-      const notifyRes = await request(app).post('/tools/notify/slack');
+      const notifyRes = await request(await listen(app)).post('/tools/notify/slack');
       expect(notifyRes.status).toBe(202);
     });
 
@@ -276,22 +277,22 @@ describe('Issues #20, #21, #24 Tests', () => {
         webhookStore: mockWebhookStore as any,
       }));
 
-      const putMetaRes = await request(app)
+      const putMetaRes = await request(await listen(app))
         .put(`/admin/api/users/${testUser.id}/metadata`)
         .set('Authorization', `Bearer ${adminToken}`);
       expect(putMetaRes.status).toBe(200);
 
-      const putSettingsRes = await request(app)
+      const putSettingsRes = await request(await listen(app))
         .put('/admin/api/settings')
         .set('Authorization', `Bearer ${adminToken}`);
       expect(putSettingsRes.status).toBe(200);
 
-      const patchUiRes = await request(app)
+      const patchUiRes = await request(await listen(app))
         .patch('/admin/api/settings/ui')
         .set('Authorization', `Bearer ${adminToken}`);
       expect(patchUiRes.status).toBe(200);
 
-      const patchWebhookRes = await request(app)
+      const patchWebhookRes = await request(await listen(app))
         .patch('/admin/api/webhooks/wh-123')
         .set('Authorization', `Bearer ${adminToken}`);
       expect(patchWebhookRes.status).toBe(200);
@@ -311,7 +312,7 @@ describe('Issues #20, #21, #24 Tests', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, config, { onBeforeDeleteUser }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .delete('/auth/account')
         .set('Authorization', `Bearer ${userToken}`);
 
@@ -333,7 +334,7 @@ describe('Issues #20, #21, #24 Tests', () => {
       const app = express();
       app.use('/auth', createAuthRouter(userStore, config, { onBeforeDeleteUser }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .delete('/auth/account')
         .set('Authorization', `Bearer ${userToken}`);
 
@@ -360,7 +361,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         onBeforeDeleteUser,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .delete(`/admin/api/users/${testUser.id}`)
         .set('Authorization', `Bearer ${adminToken}`);
 
@@ -387,7 +388,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         onBeforeDeleteUser,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .delete(`/admin/api/users/${testUser.id}`)
         .set('Authorization', `Bearer ${adminToken}`);
 
@@ -415,7 +416,7 @@ describe('Issues #20, #21, #24 Tests', () => {
       }));
 
       // Test self deletion through composite router
-      const selfRes = await request(compositeApp)
+      const selfRes = await request(await listen(compositeApp))
         .delete('/auth/account')
         .set('Authorization', `Bearer ${userToken}`);
       expect(selfRes.status).toBe(200);
@@ -423,7 +424,7 @@ describe('Issues #20, #21, #24 Tests', () => {
 
       // Create another user to test admin deletion
       const user2 = await userStore.create({ email: 'user2@example.com' });
-      const adminRes = await request(compositeApp)
+      const adminRes = await request(await listen(compositeApp))
         .delete(`/auth/admin/api/users/${user2.id}`)
         .set('Authorization', `Bearer ${adminToken}`);
       expect(adminRes.status).toBe(200);
@@ -506,7 +507,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         authConfig: customConfig,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post(`/admin/api/users/${testUser.id}/send-verification-email`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ emailLang: 'fr' });
@@ -528,7 +529,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         authConfig: config,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post(`/admin/api/users/${testUser.id}/send-verification-email`)
         .set('Authorization', `Bearer ${adminToken}`);
 
@@ -545,7 +546,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         authConfig: config,
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post('/admin/api/users/non-existent-id/send-verification-email')
         .set('Authorization', `Bearer ${adminToken}`);
 
@@ -562,7 +563,7 @@ describe('Issues #20, #21, #24 Tests', () => {
         // no authConfig provided
       }));
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .post(`/admin/api/users/${testUser.id}/send-verification-email`)
         .set('Authorization', `Bearer ${adminToken}`);
 

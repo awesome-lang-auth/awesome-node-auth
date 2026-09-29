@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import { JwksService, JwksClient } from '../src/services/jwks.service';
 import { TokenService, _resetEphemeralWarning } from '../src/services/token.service';
 import { AuthConfig } from '../src/models/auth-config.model';
@@ -307,7 +308,7 @@ describe('Auth Router — IdP / Resource Server mode', () => {
     app.use(express.json());
     app.use('/', createAuthRouter(makeStore(), config));
 
-    const res = await request(app).get('/.well-known/jwks.json');
+    const res = await request(await listen(app)).get('/.well-known/jwks.json');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.keys)).toBe(true);
     expect(res.body.keys[0].kty).toBe('RSA');
@@ -332,7 +333,7 @@ describe('Auth Router — IdP / Resource Server mode', () => {
     app.use(express.json());
     app.use('/', createAuthRouter(makeStore(), config));
 
-    const res = await request(app).get('/custom/jwks.json');
+    const res = await request(await listen(app)).get('/custom/jwks.json');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.keys)).toBe(true);
   });
@@ -352,7 +353,7 @@ describe('Auth Router — IdP / Resource Server mode', () => {
     app.use(express.json());
     app.use('/auth', createAuthRouter(makeStore(), config));
 
-    const res = await request(app).post('/auth/login').send({ email: 'a@b.com', password: 'pw' });
+    const res = await request(await listen(app)).post('/auth/login').send({ email: 'a@b.com', password: 'pw' });
     expect(res.status).toBe(404);
   });
 });

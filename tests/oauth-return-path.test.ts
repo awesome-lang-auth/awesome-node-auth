@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { listen } from './helpers/listen';
 import {
   createAuthRouter,
   validateReturnPath,
@@ -179,7 +180,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       ];
 
       for (const badPath of badInputs) {
-        const res = await request(app).get(`/auth/oauth/google?return_path=${encodeURIComponent(badPath)}`);
+        const res = await request(await listen(app)).get(`/auth/oauth/google?return_path=${encodeURIComponent(badPath)}`);
         expect(res.status).toBe(400);
         expect(res.body.code).toBe('OAUTH_RETURN_PATH_INVALID');
         const { value: cookie } = parseCookieHeader(res, 'oauth_nonce_google');
@@ -199,14 +200,14 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       );
 
       // /altro -> 400, no cookie
-      const badRes = await request(app).get('/auth/oauth/google?return_path=/altro');
+      const badRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/altro');
       expect(badRes.status).toBe(400);
       expect(badRes.body.code).toBe('OAUTH_RETURN_PATH_INVALID');
       const { value: badCookie } = parseCookieHeader(badRes, 'oauth_nonce_google');
       expect(badCookie).toBeUndefined();
 
       // /oauth/done -> 302, cookie set
-      const goodRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const goodRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       expect(goodRes.status).toBe(302);
       const { value: goodCookie } = parseCookieHeader(goodRes, 'oauth_nonce_google');
       expect(goodCookie).toBeDefined();
@@ -230,13 +231,13 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
         }),
       );
 
-      const badRes = await request(app).get('/auth/oauth/github?return_path=//evil.example');
+      const badRes = await request(await listen(app)).get('/auth/oauth/github?return_path=//evil.example');
       expect(badRes.status).toBe(400);
       expect(badRes.body.code).toBe('OAUTH_RETURN_PATH_INVALID');
       const { value: badCookie } = parseCookieHeader(badRes, 'oauth_nonce_github');
       expect(badCookie).toBeUndefined();
 
-      const goodRes = await request(app).get('/auth/oauth/github?return_path=/oauth/done');
+      const goodRes = await request(await listen(app)).get('/auth/oauth/github?return_path=/oauth/done');
       expect(goodRes.status).toBe(302);
       const { value: goodCookie } = parseCookieHeader(goodRes, 'oauth_nonce_github');
       expect(goodCookie).toBeDefined();
@@ -252,13 +253,13 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
         }),
       );
 
-      const badRes = await request(app).get('/auth/oauth/discord?return_path=/altro');
+      const badRes = await request(await listen(app)).get('/auth/oauth/discord?return_path=/altro');
       expect(badRes.status).toBe(400);
       expect(badRes.body.code).toBe('OAUTH_RETURN_PATH_INVALID');
       const { value: badCookie } = parseCookieHeader(badRes, 'oauth_nonce_discord');
       expect(badCookie).toBeUndefined();
 
-      const goodRes = await request(app).get('/auth/oauth/discord?return_path=/oauth/done');
+      const goodRes = await request(await listen(app)).get('/auth/oauth/discord?return_path=/oauth/done');
       expect(goodRes.status).toBe(302);
       const { value: goodCookie } = parseCookieHeader(goodRes, 'oauth_nonce_discord');
       expect(goodCookie).toBeDefined();
@@ -283,7 +284,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       );
 
       // 1. Initiate with valid return_path
-      const initRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       expect(initRes.status).toBe(302);
       const location = new URL(initRes.headers['location'] as string);
       const originalState = location.searchParams.get('state')!;
@@ -295,7 +296,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       const tamperedState = Buffer.from(JSON.stringify(parsed)).toString('base64url');
 
       // 3. Callback with tampered state
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(tamperedState)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -309,7 +310,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       const app = express();
       app.use('/auth', createAuthRouter(userStore, baseOAuthConfig, { googleStrategy }));
 
-      const initRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       const location = new URL(initRes.headers['location'] as string);
       const originalState = location.searchParams.get('state')!;
       const { value: cookieNonce } = parseCookieHeader(initRes, 'oauth_nonce_google');
@@ -319,7 +320,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       delete parsed.s;
       const strippedState = Buffer.from(JSON.stringify(parsed)).toString('base64url');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(strippedState)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -354,7 +355,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
         }),
       ).toString('base64url');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(expiredState)}`)
         .set('Cookie', `oauth_nonce_google=${nonce}`);
 
@@ -373,12 +374,12 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
         }),
       );
 
-      const initRes = await request(app).get('/auth/oauth/google?return_path=/oauth/done');
+      const initRes = await request(await listen(app)).get('/auth/oauth/google?return_path=/oauth/done');
       const location = new URL(initRes.headers['location'] as string);
       const state = location.searchParams.get('state')!;
       const { value: cookieNonce } = parseCookieHeader(initRes, 'oauth_nonce_google');
 
-      const res = await request(app)
+      const res = await request(await listen(app))
         .get(`/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state)}`)
         .set('Cookie', `oauth_nonce_google=${cookieNonce}`);
 
@@ -415,7 +416,7 @@ describe('Issue #22: Validate and restrict return_path, bind state to nonce cook
       const app = express();
       app.use('/auth', createAuthRouter(userStore, configWithoutOrigins, { googleStrategy }));
 
-      const res = await request(app).get('/auth/oauth/google');
+      const res = await request(await listen(app)).get('/auth/oauth/google');
       expect(res.status).toBe(500);
       expect(res.body.code).toBe('OAUTH_ORIGIN_ALLOWLIST_EMPTY');
       const { value: cookie } = parseCookieHeader(res, 'oauth_nonce_google');
