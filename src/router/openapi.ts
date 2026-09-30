@@ -163,7 +163,7 @@ export function buildAuthOpenApiSpec(
           content: { 'application/json': { schema: { $ref: '#/components/schemas/RegisterRequest' } } },
         },
         responses: {
-          201: { description: 'Account created', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, userId: { type: 'string' } }, required: ['success', 'userId'] } } } },
+          201: { description: 'Account created. With `issueSessionOnRegister` the new account is also logged in as by `POST /login`: HttpOnly cookies, or `accessToken` / `refreshToken` in the body with `X-Auth-Strategy: bearer`', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, userId: { type: 'string' }, accessToken: { type: 'string' }, refreshToken: { type: 'string' } }, required: ['success', 'userId'] } } } },
           400: { description: 'Validation error' },
           409: { description: 'An account with this e-mail address already exists (built-in handler: code USER_EXISTS)' },
         },
