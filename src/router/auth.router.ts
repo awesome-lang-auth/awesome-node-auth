@@ -16,7 +16,7 @@ import { AccessTokenPayload, TokenPair } from '../models/token.model';
 import { TokenService } from '../services/token.service';
 import { PasswordService } from '../services/password.service';
 import { MailerService } from '../services/mailer.service';
-import { LocalStrategy } from '../strategies/local/local.strategy';
+import { LocalStrategy, assertEmailVerificationAllowsLogin, effectiveEmailVerificationMode } from '../strategies/local/local.strategy';
 import { TotpStrategy } from '../strategies/two-factor/totp.strategy';
 import { MagicLinkStrategy } from '../strategies/magic-link/magic-link.strategy';
 import { SmsStrategy } from '../strategies/sms/sms.strategy';
@@ -199,6 +199,31 @@ export interface RouterOptions {
    * @default false
    */
   defaultRegister?: boolean;
+
+  /**
+   * Let a successful `POST /auth/register` also log the new account in.
+   * Only matters where the register route is mounted (`onRegister` or
+   * `defaultRegister: true`).
+   *
+   * - Off (default): `201 { success: true, userId }`, no cookie, no token, no
+   *   session; the client calls `POST /auth/login` afterwards.
+   * - On: the same `201` and body fields, plus a session delivered exactly
+   *   as `POST /auth/login` delivers it: HttpOnly cookies by default, or
+   *   `accessToken` / `refreshToken` in the body with `X-Auth-Strategy: bearer`;
+   *   a `sessionStore` row (honouring `session.singleSessionPerUser`),
+   *   `updateLastLogin` and the `AUTH_LOGIN_SUCCESS` event, as for a login.
+   *
+   * A refused registration (400, `409 USER_EXISTS`, a throwing `onRegister`)
+   * never issues anything.  No session is issued when the login would not
+   * issue one for the new account either: the email-verification policy
+   * blocks it (`emailVerificationMode: 'strict'` / `requireEmailVerification`
+   * and the account is unverified), or the account needs a second factor
+   * (`isTotpEnabled` / `require2FA`).  Then the answer is the plain `201`
+   * and the client goes through `POST /auth/login`.
+   *
+   * @default false
+   */
+  issueSessionOnRegister?: boolean;
 
   /**
    * Local base path where this specific auth router instance is mounted.
@@ -750,14 +775,24 @@ function isBearerRequest(req: Request): boolean {
  * Issue tokens to the client.  When the request carries the
  * `X-Auth-Strategy: bearer` header the tokens are returned in the JSON
  * response body; otherwise they are set as HttpOnly cookies (default).
+ * `respond` sets another status and adds fields after `success` (used by
+ * `POST /register`); without it the answer is the login's `200` body.
  */
-function sendTokens(req: Request, res: Response, tokens: TokenPair, config: AuthConfig): void {
+function sendTokens(req: Request, res: Response, tokens: TokenPair, config: AuthConfig, respond?: TokenResponseOptions): void {
+  if (respond?.status) res.status(respond.status);
+  const extra = respond?.body ?? {};
   if (isBearerRequest(req)) {
-    res.json({ success: true, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
+    res.json({ success: true, ...extra, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
   } else {
     tokenService.setTokenCookies(res, tokens, config);
-    res.json({ success: true });
+    res.json({ success: true, ...extra });
   }
+}
+
+/** Status and extra body fields for a JSON token response (see `sendTokens`). */
+interface TokenResponseOptions {
+  status?: number;
+  body?: Record<string, unknown>;
 }
 
 /**
@@ -772,7 +807,8 @@ async function issueTokens(
   options: RouterOptions,
   userStore: IUserStore,
   redirectTo?: string,
-  oldSid?: string
+  oldSid?: string,
+  respond?: TokenResponseOptions
 ): Promise<{ sessionId?: string }> {
   const payload = buildPayload(user, config);
   const refreshExpiryMs = parseExpiryMs(config.refreshTokenExpiresIn as string | undefined);
@@ -828,9 +864,17 @@ async function issueTokens(
     tokenService.setTokenCookies(res, tokens, config);
     res.redirect(redirectTo);
   } else {
-    sendTokens(req, res, tokens, config);
+    sendTokens(req, res, tokens, config, respond);
   }
   return { sessionId: payload.sid };
+}
+
+/**
+ * True when `POST /login` answers this account with a 2FA challenge (or a
+ * 2FA-setup requirement) instead of a session.
+ */
+function loginRequiresSecondFactor(user: BaseUser): boolean {
+  return !!(user.isTotpEnabled && user.totpSecret) || !!user.require2FA;
 }
 
 export function createAuthRouter(
@@ -921,6 +965,11 @@ export function createAuthRouter(
       );
     }
   }
+  if (registerHandler && options.issueSessionOnRegister === true && effectiveEmailVerificationMode(config) === 'strict') {
+    process.stderr.write(
+      '[awesome-node-auth] INFO: issueSessionOnRegister is on, but emailVerificationMode is strict: POST /register issues no session for an unverified account; it logs in after verifying the address.\n',
+    );
+  }
 
   // ── IdP mode: JWKS endpoint ────────────────────────────────────────────────
   // Registered BEFORE auth middleware so it is always public (no token required).
@@ -990,6 +1039,19 @@ export function createAuthRouter(
     });
   }
 
+  // The end of a successful password login: record it, deliver the session
+  // (cookies or bearer body, session row) and publish AUTH_LOGIN_SUCCESS.
+  // POST /register reuses it when `issueSessionOnRegister` is on.
+  const completeLocalLogin = async (req: Request, res: Response, user: BaseUser, respond?: TokenResponseOptions): Promise<void> => {
+    await userStore.updateLastLogin(user.id);
+    const { sessionId } = await issueTokens(req, res, user, config, options, userStore, undefined, undefined, respond);
+    publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
+      userId: user.id,
+      sessionId,
+      data: { method: 'local' },
+    });
+  };
+
   // POST /login
   if (!isResourceServer) router.post('/login', ...rl, async (req: Request, res: Response) => {
     try {
@@ -1006,7 +1068,7 @@ export function createAuthRouter(
       //   (b) require2FA is set on the user record (any available 2FA method suffices,
       //       including magic-link — the user does NOT need an authenticator app).
       const hasTotpEnabled = !!(user.isTotpEnabled && user.totpSecret);
-      const requires2fa = hasTotpEnabled || !!user.require2FA;
+      const requires2fa = loginRequiresSecondFactor(user);
 
       if (requires2fa) {
         // Compute which 2FA methods this user can use
@@ -1030,13 +1092,7 @@ export function createAuthRouter(
         return;
       }
 
-      await userStore.updateLastLogin(user.id);
-      const { sessionId } = await issueTokens(req, res, user, config, options, userStore);
-      publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_SUCCESS, req, {
-        userId: user.id,
-        sessionId,
-        data: { method: 'local' },
-      });
+      await completeLocalLogin(req, res, user);
     } catch (err) {
       if (err instanceof AuthError && err.statusCode === 401) {
         publishRouterEvent(eventBus, AuthEventNames.AUTH_LOGIN_FAILED, req, {
@@ -1237,6 +1293,18 @@ export function createAuthRouter(
     }
   });
 
+  // With `issueSessionOnRegister`, register logs the new account in only when
+  // POST /login would: the email-verification gate and the 2FA challenge win.
+  const registerMayIssueSession = (user: BaseUser): boolean => {
+    if (loginRequiresSecondFactor(user)) return false;
+    try {
+      assertEmailVerificationAllowsLogin(user, config);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // POST /register (optional — only mounted when onRegister is provided or defaultRegister is set)
   if (registerHandler && !isResourceServer) {
     router.post('/register', ...rl, async (req: Request, res: Response) => {
@@ -1256,6 +1324,10 @@ export function createAuthRouter(
           userId: user.id,
           data: { email: eventEmail(user.email), method: options.onRegister ? 'custom' : 'default' },
         });
+        if (options.issueSessionOnRegister === true && registerMayIssueSession(user)) {
+          await completeLocalLogin(req, res, user, { status: 201, body: { userId: user.id } });
+          return;
+        }
         res.status(201).json({ success: true, userId: user.id });
       } catch (err) {
         handleError(res, err);

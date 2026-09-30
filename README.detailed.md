@@ -1236,6 +1236,29 @@ After creating the user, if `config.email.sendWelcome` or `config.email.mailer` 
 
 > **Tip:** Omit `onRegister` (and `defaultRegister`) entirely for admin-only or invite-only systems where users should not be able to sign up themselves.
 
+### Log the new account in on register (`issueSessionOnRegister`)
+
+By default `POST /auth/register` only creates the account: the client calls `POST /auth/login` afterwards. Set `issueSessionOnRegister: true` in `RouterOptions` to also log the new account in:
+
+```typescript
+app.use('/auth', auth.router({ defaultRegister: true, issueSessionOnRegister: true }));
+```
+
+The answer is still `201` with `success` and `userId`, plus a session delivered exactly as `POST /auth/login` delivers it:
+
+- **cookie mode** (default): the access and refresh HttpOnly cookies are set, and the body is `{ "success": true, "userId": "abc123" }`;
+- **bearer mode** (`X-Auth-Strategy: bearer`): no cookies, and the body is `{ "success": true, "userId": "abc123", "accessToken": "…", "refreshToken": "…" }`.
+
+As at login, a `sessionStore` row is created (with `session.singleSessionPerUser` honoured), `userStore.updateLastLogin` is called and `AUTH_LOGIN_SUCCESS` is published after `USER_CREATED`.
+
+Nothing is issued, and the answer is the plain `201 { success, userId }`, when:
+
+- the registration is refused (`400`, `409 USER_EXISTS`, an `onRegister` that throws);
+- the email-verification policy blocks the login of the new, unverified account (`emailVerificationMode: 'strict'`, or the legacy `requireEmailVerification: true`), so the option never bypasses verification. At startup the router writes an `INFO` line to `stderr` when both are configured;
+- the login would ask the new account for a second factor (`isTotpEnabled` or `require2FA` set by `onRegister`); the client gets the challenge from `POST /auth/login`.
+
+The option is off by default and only matters where the register route is mounted.
+
 ### Default register handler
 
 Set `defaultRegister: true` in `RouterOptions` to mount `POST /auth/register` with a built-in handler instead of writing an `onRegister` callback. It is off by default, it is never mounted in Resource Server mode, and `onRegister` takes precedence when both are set.
@@ -3122,6 +3145,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `settingsStore` | `ISettingsStore` | Enables system 2FA policy check in `POST /auth/2fa/disable` |
 | `onRegister` | `(data, config, options) => Promise<BaseUser>` | Enables `POST /auth/register` |
 | `defaultRegister` | `boolean` | Enables `POST /auth/register` with the [built-in handler](#default-register-handler) (allow-listed fields) when `onRegister` is omitted. Default: `false` |
+| `issueSessionOnRegister` | `boolean` | A successful `POST /auth/register` also logs the new account in, as `POST /auth/login` does (cookies, or tokens with `X-Auth-Strategy: bearer`); never when email verification or 2FA would block the login. See [Log the new account in on register](#log-the-new-account-in-on-register-issuesessiononregister). Default: `false` |
 | `metadataStore` | `IUserMetadataStore` | Adds `metadata` field to `GET /me` response |
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
 | `sessionStore` | `ISessionStore` (with `deleteExpiredSessions`) | Enables `POST /auth/sessions/cleanup` |

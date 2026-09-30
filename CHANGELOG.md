@@ -3,6 +3,14 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`issueSessionOnRegister` on `RouterOptions`** (family spec, origin awesome-go-auth #21): a successful `POST /auth/register` can also log the new account in. Off by default: register still answers `201 { success, userId }` with no cookie, token or session.
+  - On, the session is delivered as `POST /auth/login` delivers it: HttpOnly cookies, or `accessToken` / `refreshToken` in the body with `X-Auth-Strategy: bearer`, next to `success` and `userId`. The `sessionStore` row (`session.singleSessionPerUser` honoured), `updateLastLogin` and `AUTH_LOGIN_SUCCESS` come from the login's own code.
+  - Nothing is issued for a refused registration, when the email-verification policy blocks the unverified account (`emailVerificationMode: 'strict'` / `requireEmailVerification`, logged once at startup), or when the login would ask for a second factor.
+  - The OpenAPI `201` of `POST /register` lists the optional `accessToken` / `refreshToken`.
+
 ## [1.10.8] — 2026-09-29
 
 ### Added
