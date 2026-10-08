@@ -1525,9 +1525,7 @@ const user = AwesomeNodeAuth.getUser();     // user from the last checkSession
 
 ### Mounting the UI router
 
-`auth.router()` always mounts the UI router at `/ui`. Without `ui.enabled: true` it serves only `auth.js` and `/config`; with it, the pages and the other assets too. If you need more control, use `buildUiRouter` directly (it serves the full UI unless you pass `clientOnly: true`).
-
-When you mount `buildUiRouter` yourself at `<apiPrefix>/ui` **after** `auth.router()`, the auth router answers `/ui/auth.js` and `/ui/config` first. Pass the same `settingsStore` (and `uiAssetsDir`, if any) in the `auth.router()` options so `/ui/config` carries the same theme, or mount your UI router before `auth.router()`:
+`auth.router()` always mounts the UI router at `/ui`. Without `ui.enabled: true` it serves only `auth.js` and `/config`; with it, the pages and the other assets too. If you need more control, use `buildUiRouter` directly (it serves the full UI unless you pass `clientOnly: true`):
 
 ```typescript
 import { buildUiRouter } from '@awesome-lang-auth/node';
@@ -1543,6 +1541,8 @@ app.use('/auth/ui', buildUiRouter({
   apiPrefix: '/auth',
 }));
 ```
+
+When you mount `buildUiRouter` yourself at `<apiPrefix>/ui` **after** `auth.router()`, the auth router answers `/ui/auth.js` and `/ui/config` first. Pass the same `settingsStore` (and `uiAssetsDir`, if any) in the `auth.router()` options so `/ui/config` carries the same theme, or mount your UI router before `auth.router()`.
 
 > **SSR & splash screen:** `buildUiRouter` performs server-side rendering for every HTML page before sending it to the browser. It injects CSS custom-property overrides (`--primary-color`, `--bg-color`, `--card-bg`, `--bg-image`, …) directly into a `<style>` tag inside `<head>` to prevent any Flash of Unstyled Content (FOUC). A `window.__AUTH_CONFIG__` script tag is also injected so `auth.js` can boot synchronously without a round-trip. A lightweight CSS spinner overlay (`#global-splash`) is shown during page load and removed once the `window.onload` event fires.
 
