@@ -233,7 +233,10 @@ const auth = new AuthConfigurator(
 
 // Mount the auth router  →  POST /auth/register, POST /auth/login, GET /auth/me, …
 // Pass onRegister so the POST /auth/register endpoint is enabled.
+// It also serves the browser client at /auth/ui/auth.js and /auth/ui/config
+// (before the UI router below), so it gets the same settingsStore for the theme.
 app.use('/auth', auth.router({
+  settingsStore,
   onRegister: async (data) => {
     // Validate inputs
     const email    = typeof data.email    === 'string' ? data.email.trim()    : '';

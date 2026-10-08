@@ -53,6 +53,17 @@ export interface UiRouterOptions {
      * Optional template store for UI translations.
      */
     templateStore?: ITemplateStore;
+
+    /**
+     * Serve only the browser client: `GET /auth.js` and `GET /config`.
+     * No HTML page, stylesheet or other asset is served. `/config` is the
+     * same document as in the full UI (`headless` reports `ui.headless`).
+     *
+     * The auth router mounts the UI router this way when `ui.enabled` is not
+     * set, so `auth.js` and `/config` are always available.
+     * @default false
+     */
+    clientOnly?: boolean;
 }
 
 /**
@@ -63,7 +74,7 @@ export interface UiRouterOptions {
  */
 export function buildUiRouter(options: UiRouterOptions): Router {
     const router = Router();
-    const { uploadDir, settingsStore, templateStore, authConfig, routerOptions } = options;
+    const { uploadDir, settingsStore, templateStore, authConfig, routerOptions, clientOnly } = options;
     const apiPrefix = resolveApiPrefix(authConfig, routerOptions);
 
     // In some environments (like ESM bundling), __dirname may not be available.
@@ -176,6 +187,18 @@ export function buildUiRouter(options: UiRouterOptions): Router {
         (config as any).headless = !!(authConfig.ui?.headless);
         res.json(config);
     });
+
+    // Client-only mode (the auth router's default when `ui.enabled` is not
+    // set): serve auth.js and nothing else. Pages and the other assets answer
+    // 404. The static handler sits on the single `/auth.js` route, so it
+    // cannot reach any other file in the assets directory.
+    if (clientOnly) {
+        router.get('/auth.js', expressStatic(uiAssetsDir, {
+            maxAge: 0,
+            index: false,
+        }));
+        return router;
+    }
 
     // In headless mode the HTML pages are not served (the hosting SPA provides
     // its own login UI). We still serve /config and static assets (auth.js, CSS)

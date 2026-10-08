@@ -80,7 +80,7 @@ Full DB examples (MongoDB, PostgreSQL, MySQL, in-memory) → [README.detailed.md
 | **RBAC** | `IRolesPermissionsStore` with tenant awareness |
 | **Multi-tenancy** | `ITenantStore` for isolated tenant apps |
 | **Admin panel** | Full-featured admin UI: user management, sessions, roles, tenants, metadata, API keys, webhooks |
-| **Built-in UI** | Zero-dependency HTML/CSS/JS login UI served at `<apiPrefix>/ui/` · **headless mode** for SPAs |
+| **Built-in UI** | Zero-dependency HTML/CSS/JS login UI served at `<apiPrefix>/ui/` (opt-in `ui.enabled`) · **headless mode** for SPAs · browser client `auth.js` always served |
 | **Client libraries** | Angular · Flutter · React · served `auth.js` — see [Ecosystem](#ecosystem) |
 | **Event-driven** | `AuthEventBus` · SSE push · inbound/outbound webhooks · telemetry |
 | **API keys** | M2M bcrypt-hashed keys with scopes, expiry, IP allowlist and audit log |
@@ -237,7 +237,7 @@ The admin sign-in form checks the password only, with no second factor, and its 
 | Angular | [`ng-awesome-node-auth`](https://github.com/awesome-lang-auth/awesome-angular-auth) | npm · to be renamed `@awesome-lang-auth/angular` |
 | Flutter | [`awesome_node_auth_flutter`](https://github.com/awesome-lang-auth/awesome-flutter-auth) | pub.dev · to be renamed `awesome_flutter_auth` |
 | React | [`@awesome-lang-auth/react`](https://github.com/awesome-lang-auth/awesome-react-auth) | npm 0.1.0 |
-| Browser | `auth.js` | Served by this library at `<apiPrefix>/ui/auth.js` when `ui.enabled` is set — see [Including `auth.js`](./README.detailed.md#including-authjs) |
+| Browser | `auth.js` | Served by this library at `<apiPrefix>/ui/auth.js` (default `/auth/ui/auth.js`) as soon as the auth router is mounted, with or without `ui.enabled` — see [Including `auth.js`](./README.detailed.md#including-authjs) |
 
 ---
 

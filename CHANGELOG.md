@@ -3,6 +3,21 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`auth.js` and `/ui/config` are always served** (family rule: every backend serves the browser client at the same route): as soon as the auth router is mounted, `GET <apiPrefix>/ui/auth.js` (default `/auth/ui/auth.js`) and `GET <apiPrefix>/ui/config` answer `200`, with or without `ui.enabled`. This holds for `auth.router()` / `createAuthRouter()` and for `buildAllRouters()`. The mount prefix moves both, together with the pages.
+  - `auth.js` is the shipped `src/ui/assets/auth.js`, byte for byte. `/ui/config` is the same node-shaped document as with the full UI; its `headless` field still reports `ui.headless`.
+  - `ui: { headless: true }` without `enabled` now takes effect: `/ui/config` reports `headless: true` (before, nothing under `/ui` was served).
+- **`clientOnly` on `UiRouterOptions`**: `buildUiRouter({ …, clientOnly: true })` serves only `GET /auth.js` and `GET /config`. The auth router uses it when `ui.enabled` is not set.
+
+### Changed
+- **The UI router is always mounted under `<apiPrefix>/ui`.** `ui.enabled` (default `false`) now only controls the built-in HTML pages and the other assets (`base.css`, `admin.js`, …). Without it they still answer `404`, as `ui.enabled` + `ui.headless` already did for the pages. With `ui.enabled` nothing changes.
+  - If you mount `buildUiRouter` yourself at `<apiPrefix>/ui` **after** `auth.router()`, the auth router now answers `/ui/auth.js` and `/ui/config` first, from its own options. Pass the same `settingsStore` (and `uiAssetsDir`) in the `auth.router()` options, mount your UI router before `auth.router()`, or set `ui.enabled` and drop the separate mount. The Express demo now passes `settingsStore` to `auth.router()`.
+
+### Documentation
+- **Wrong `auth.js` path**: the `ui.headless` JSDoc, the Express demo and the generic OAuth example pointed at `/auth/ui/assets/auth.js`, which answers `404`. The route is `<apiPrefix>/ui/auth.js`. `README.md` and `README.detailed.md` describe the always-on client and list what each `ui` option serves.
+
 ## [1.10.8] — 2026-09-29
 
 ### Added

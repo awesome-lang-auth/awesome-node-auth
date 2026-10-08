@@ -508,7 +508,7 @@ const config: AuthConfig = {
   // Built-in UI configuration
   ui: {
     enabled: true,
-    headless: false,   // Set to true for SPAs (serves assets but not HTML)
+    headless: false,   // Set to true for SPAs (serves assets but not HTML; auth.js is always served)
   },
 
   // Optional stores (v1.6.0 adds templateStore)
@@ -1303,6 +1303,17 @@ Set `ui: { enabled: true }` in `AuthConfig` to mount a zero-dependency HTML/CSS/
 
 Pages are served under `<apiPrefix>/ui/` and self-configure via a `GET <apiPrefix>/ui/config` endpoint that returns active features, API prefix, and theme settings.
 
+The browser client and its config endpoint do not need `ui.enabled`: as soon as the auth router is mounted, it serves `GET <apiPrefix>/ui/auth.js` and `GET <apiPrefix>/ui/config` (default `/auth/ui/auth.js` and `/auth/ui/config`). Mounting the router on another prefix moves both, together with the pages.
+
+| `ui` options | `<apiPrefix>/ui/auth.js` | `<apiPrefix>/ui/config` | Pages (`/ui/login`, …) | Other assets (`/ui/base.css`, …) |
+|---|---|---|---|---|
+| none, or `enabled: false` | 200 | 200, `headless: false` | 404 | 404 |
+| `headless: true` without `enabled` | 200 | 200, `headless: true` | 404 | 404 |
+| `enabled: true` | 200 | 200, `headless: false` | 200 | 200 |
+| `enabled: true, headless: true` | 200 | 200, `headless: true` | 404 | 200 |
+
+`headless` in `/ui/config` reports the `ui.headless` option. When the built-in pages are off, keep `auth.js` away from the missing `/ui/login`: set `ui.headless: true` (read by `auth.js` from `/ui/config`), or pass `headless: true`, `loginUrl` or `onSessionExpired` to `AwesomeNodeAuth.init()`.
+
 ### Enabling the UI
 
 ```typescript
@@ -1340,7 +1351,7 @@ Include `auth.js` in your app’s `<head>` to get a complete, zero-config browse
 <script src="/auth/ui/auth.js"></script>
 ```
 
-Replace `/auth` with your actual `apiPrefix` if different from the default.
+Replace `/auth` with your actual `apiPrefix` if different from the default. The auth router serves `auth.js` whether or not `ui.enabled` is set, so an app with its own login pages can load it with the built-in UI turned off.
 
 `auth.js` registers two globals:
 
@@ -1514,7 +1525,7 @@ const user = AwesomeNodeAuth.getUser();     // user from the last checkSession
 
 ### Mounting the UI router
 
-The UI router is automatically mounted when `ui.enabled: true` in `AuthConfig` and you use `auth.router()`. If you need more control, use `buildUiRouter` directly:
+`auth.router()` always mounts the UI router at `/ui`. Without `ui.enabled: true` it serves only `auth.js` and `/config`; with it, the pages and the other assets too. If you need more control, use `buildUiRouter` directly (it serves the full UI unless you pass `clientOnly: true`):
 
 ```typescript
 import { buildUiRouter } from '@awesome-lang-auth/node';
@@ -1530,6 +1541,8 @@ app.use('/auth/ui', buildUiRouter({
   apiPrefix: '/auth',
 }));
 ```
+
+When you mount `buildUiRouter` yourself at `<apiPrefix>/ui` **after** `auth.router()`, the auth router answers `/ui/auth.js` and `/ui/config` first. Pass the same `settingsStore` (and `uiAssetsDir`, if any) in the `auth.router()` options so `/ui/config` carries the same theme, or mount your UI router before `auth.router()`.
 
 > **SSR & splash screen:** `buildUiRouter` performs server-side rendering for every HTML page before sending it to the browser. It injects CSS custom-property overrides (`--primary-color`, `--bg-color`, `--card-bg`, `--bg-image`, …) directly into a `<style>` tag inside `<head>` to prevent any Flash of Unstyled Content (FOUC). A `window.__AUTH_CONFIG__` script tag is also injected so `auth.js` can boot synchronously without a round-trip. A lightweight CSS spinner overlay (`#global-splash`) is shown during page load and removed once the `window.onload` event fires.
 

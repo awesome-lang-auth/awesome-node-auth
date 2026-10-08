@@ -158,7 +158,8 @@ export interface RouterOptions {
   /**
    * Optional settings store.  When provided, the `POST /auth/2fa/disable`
    * endpoint will check the global `require2FA` setting and reject the request
-   * when two-factor authentication is mandated system-wide.
+   * when two-factor authentication is mandated system-wide.  Its `ui` settings
+   * also theme `GET /ui/config` and the built-in pages.
    */
   settingsStore?: ISettingsStore;
   /**
@@ -2370,17 +2371,19 @@ export function createAuthRouter(
   });
 
   // ── Vanilla UI (HTML/JS/CSS) ──────────────────────────────────────────────
-  if (config.ui?.enabled) {
-    router.use('/ui', buildUiRouter({
-      uiAssetsDir: options.uiAssetsDir,
-      uploadDir: options.uploadDir,
-      settingsStore: options.settingsStore,
-      templateStore: config.templateStore,
-      authConfig: config,
-      routerOptions: { ...options, onRegister: registerHandler },
-      apiPrefix: resolveApiPrefix(config, options),
-    }));
-  }
+  // The browser client (`/ui/auth.js`) and `/ui/config` are always served.
+  // `ui.enabled` adds the HTML pages and the other assets (`ui.headless`
+  // keeps the assets and drops the pages).
+  router.use('/ui', buildUiRouter({
+    uiAssetsDir: options.uiAssetsDir,
+    uploadDir: options.uploadDir,
+    settingsStore: options.settingsStore,
+    templateStore: config.templateStore,
+    authConfig: config,
+    routerOptions: { ...options, onRegister: registerHandler },
+    apiPrefix: resolveApiPrefix(config, options),
+    clientOnly: !config.ui?.enabled,
+  }));
 
   // ── Swagger / OpenAPI (optional) ───────────────────────────────────────────
   const swaggerEnabled =
