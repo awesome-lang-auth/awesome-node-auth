@@ -234,10 +234,10 @@ app.listen(PORT, () => {
 //
 // ── Browser client (auth.js / window.AwesomeNodeAuth) ────────────────────────────
 //
-// awesome-node-auth ships a zero-config browser client at /auth/ui/assets/auth.js.
+// awesome-node-auth ships a zero-config browser client at /auth/ui/auth.js.
 // Include it once in your HTML — it registers window.AwesomeNodeAuth automatically:
 //
-//   <script src="/auth/ui/assets/auth.js"></script>
+//   <script src="/auth/ui/auth.js"></script>
 //
 // Zero-config usage (apiPrefix is auto-detected from the URL):
 //   const result = await AwesomeNodeAuth.login(email, password);

@@ -332,16 +332,25 @@ export interface AuthConfig {
 
   /**
    * Optional built-in static UI configuration.
+   *
+   * The browser client `auth.js` (`<apiPrefix>/ui/auth.js`) and the
+   * `<apiPrefix>/ui/config` endpoint are always served by the auth router,
+   * whatever these options say. They follow the router's mount prefix.
    */
   ui?: {
-    /** Whether to enable and serve the static UI. Default is false. */
+    /**
+     * Whether to serve the built-in HTML pages and the other static UI assets
+     * (`base.css`, `admin.js`, …) under `<apiPrefix>/ui/`. Default is false:
+     * the pages answer 404, while `auth.js` and `/ui/config` are still served.
+     */
     enabled?: boolean;
     /**
      * Headless UI mode.
      *
      * When `true`, the UI router:
-     *   - Still serves `auth.js` and other static assets (CSS, JS) at `/ui/assets/*`
-     *     so they can be loaded from a remote SPA via a `<script>` tag.
+     *   - Still serves `auth.js` and other static assets (CSS, JS) at `/ui/*`
+     *     (e.g. `/auth/ui/auth.js`) so they can be loaded from a remote SPA via
+     *     a `<script>` tag. Without `enabled`, only `auth.js` is served.
      *   - Still exposes the `/ui/config` endpoint.
      *   - Returns **404** for all HTML page routes (`/login`, `/register`, …) because
      *     the hosting SPA provides its own login pages.
@@ -349,6 +358,7 @@ export interface AuthConfig {
      * `auth.js` automatically detects this flag from the `/ui/config` response and
      * disables any `window.location.href` redirects on session expiry or refresh
      * failure — preventing the library from navigating away from the external SPA.
+     * It works with or without `enabled`: `/ui/config` reports this option as is.
      *
      * Typical use case: a Docusaurus documentation site or any React/Vue/Angular SPA
      * that shares the same auth backend but handles its own login flow.
