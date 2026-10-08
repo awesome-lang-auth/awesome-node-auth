@@ -3,7 +3,7 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] — 2026-10-08
 
 ### Added
 - **`auth.js` and `/ui/config` are always served** (family rule: every backend serves the browser client at the same route): as soon as the auth router is mounted, `GET <apiPrefix>/ui/auth.js` (default `/auth/ui/auth.js`) and `GET <apiPrefix>/ui/config` answer `200`, with or without `ui.enabled`. This holds for `auth.router()` / `createAuthRouter()` and for `buildAllRouters()`. The mount prefix moves both, together with the pages.
