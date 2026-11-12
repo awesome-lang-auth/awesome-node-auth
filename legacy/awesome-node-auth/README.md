@@ -2,7 +2,7 @@
 
 **This package was renamed.** Starting with 1.10.1 the library is published as [`@awesome-lang-auth/node`](https://www.npmjs.com/package/@awesome-lang-auth/node). The code and the API are the same; only the package name changed. New releases are published only under the new name.
 
-`awesome-node-auth@1.10.1` is a compatibility bridge. It depends on `@awesome-lang-auth/node@^1.10.1` and re-exports it, so existing code keeps working while you migrate.
+`awesome-node-auth@1.10.2` is a compatibility bridge. It depends on `@awesome-lang-auth/node@^1.12.0` and re-exports it, so existing code keeps working while you migrate.
 
 ## Migrate
 

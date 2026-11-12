@@ -31,6 +31,7 @@ import { JwksService } from '../services/jwks.service';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
 import { publishRequestEvent as publishRouterEvent, eventEmail, oauthConflictEventData } from './router-events';
+import { sanitizeRegisterBody, type RegisterInput } from './register-sanitize';
 
 export interface DeleteUserContext {
   req: Request;
@@ -164,8 +165,18 @@ export interface RouterOptions {
   settingsStore?: ISettingsStore;
   /**
    * Optional registration handler.  When provided, a `POST /auth/register`
-   * endpoint is exposed.  The callback receives the raw request body and must
-   * create the user, returning the new `BaseUser` object.
+   * endpoint is exposed.  The callback receives the request body **without**
+   * system-managed fields (see `registerDenyFields`, `registerAllowFields`)
+   * and must create the user, returning the new `BaseUser` object.
+   *
+   * Stripped before the callback runs: every `BaseUser` field except `email`,
+   * `password`, `firstName` and `lastName` (for example `id`, `role`,
+   * `isAdmin`, `isEmailVerified`, `loginProvider`, `phoneNumber`, `require2FA`
+   * and the token fields), common privileged keys (`roles`, `permissions`,
+   * `scopes`, `tenantId`, `metadata`, `_id`, `createdAt`, ...), the keys in
+   * `registerDenyFields`, and `__proto__` / `constructor` / `prototype`.
+   * Other keys (for example `company` or `acceptTerms`) pass through
+   * unvalidated.  Pick fields explicitly; never spread `data` into the user.
    *
    * If omitted the register endpoint is **not** mounted (useful for projects
    * where self-registration should not be available), unless
@@ -173,13 +184,36 @@ export interface RouterOptions {
    *
    * @example
    * ```ts
-   * onRegister: async (data) => {
-   *   const hash = await passwordService.hash(data.password as string);
-   *   return userStore.create({ email: data.email as string, password: hash });
+   * onRegister: async (data, config) => {
+   *   if (typeof data.email !== 'string' || typeof data.password !== 'string') {
+   *     throw new AuthError('email and password are required', 'VALIDATION_ERROR', 400);
+   *   }
+   *   const hash = await passwordService.hash(data.password, config.bcryptSaltRounds);
+   *   return userStore.create({
+   *     email: data.email,
+   *     password: hash,
+   *     firstName: typeof data.firstName === 'string' ? data.firstName : undefined,
+   *   });
    * }
    * ```
    */
-  onRegister?: (data: Record<string, unknown>, config: AuthConfig, options: RouterOptions) => Promise<BaseUser>;
+  onRegister?: (data: RegisterInput, config: AuthConfig, options: RouterOptions) => Promise<BaseUser>;
+
+  /**
+   * Extra top-level body keys removed before `onRegister` and `sendWelcome` see the body
+   * (in addition to the BaseUser system fields and the common privileged keys).
+   * Comparison is exact and case-sensitive.
+   */
+  registerDenyFields?: string[];
+
+  /**
+   * Keys that are stripped by default (BaseUser system fields or common privileged keys such as
+   * `tenantId`) but that this app explicitly accepts from the sign-up body, for example `['role']`
+   * when the user picks an account type. The app must validate them in `onRegister`.
+   * Each entry logs a WARN line at mount. Prototype keys can never be allowed, and an entry
+   * that is also in `registerDenyFields` stays stripped.
+   */
+  registerAllowFields?: string[];
 
   /**
    * Mount `POST /auth/register` with the built-in handler when `onRegister`
@@ -193,7 +227,8 @@ export interface RouterOptions {
    * are strings.  Every other field of the request body (for example `id`,
    * `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, token fields,
    * `tenantId` or `metadata`) is dropped.  Provide `onRegister` to accept
-   * other fields.
+   * other fields (system fields such as `role` additionally need
+   * `registerAllowFields`).
    *
    * Ignored when `onRegister` is provided and in Resource Server mode.
    *
@@ -922,6 +957,19 @@ export function createAuthRouter(
       );
     }
   }
+  if (registerHandler && options.onRegister) {
+    for (const field of options.registerAllowFields ?? []) {
+      if (field === '__proto__' || field === 'constructor' || field === 'prototype') {
+        process.stderr.write(
+          `[awesome-node-auth] WARN: registerAllowFields lists ${JSON.stringify(field)}, which can never be accepted from the request body; it stays stripped.\n`,
+        );
+        continue;
+      }
+      process.stderr.write(
+        `[awesome-node-auth] WARN: POST /register accepts the protected field ${JSON.stringify(field)} from the request body (registerAllowFields); validate it in onRegister.\n`,
+      );
+    }
+  }
 
   // ── IdP mode: JWKS endpoint ────────────────────────────────────────────────
   // Registered BEFORE auth middleware so it is always public (no token required).
@@ -1242,11 +1290,23 @@ export function createAuthRouter(
   if (registerHandler && !isResourceServer) {
     router.post('/register', ...rl, async (req: Request, res: Response) => {
       try {
-        const data = (req.body ?? {}) as Record<string, unknown>;
+        // System-managed fields (role, isAdmin, tokens, ...) never reach the
+        // callback, the store or the welcome mail: see register-sanitize.ts.
+        const { data, strippedFields } = sanitizeRegisterBody(req.body, {
+          extraDeny: options.registerDenyFields,
+          allow: options.registerAllowFields,
+        });
+        if (strippedFields.length > 0) {
+          // Field names only: never values, never the e-mail address.
+          process.stderr.write(
+            `[awesome-node-auth] WARN: POST /register ignored body fields: ${strippedFields.join(', ')}\n`,
+          );
+        }
         const user = await registerHandler(data, config, options);
         if (config.email?.sendWelcome) {
-          // The welcome callback gets the request data without the plaintext password.
-          const { password: _password, ...welcomeData } = data ?? {};
+          // The welcome callback gets the same sanitized data (including values
+          // the callback attached to it) without the plaintext password.
+          const { password: _password, ...welcomeData } = data;
           await config.email.sendWelcome(user.email, welcomeData);
         } else if (config.email?.mailer) {
           const mailer = new MailerService(config.email.mailer, config.templateStore);

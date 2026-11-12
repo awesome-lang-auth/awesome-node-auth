@@ -1180,7 +1180,7 @@ await userStore.create({
 
 `POST /auth/register` is **optional** — it is only mounted when you provide an `onRegister` callback in `RouterOptions`, or set `defaultRegister: true` to use the [built-in handler](#default-register-handler). This lets you opt out of self-registration entirely for projects where it is not needed.
 
-The callback receives three arguments: `(data, config, options)` where `options` is the `RouterOptions` object passed to `createAuthRouter`. Use `buildUiLink` to generate correct redirect URLs regardless of whether the built-in UI is enabled:
+The callback receives three arguments: `(data, config, options)` where `data` is the request body **without** system-managed fields (see [Register body sanitization](#register-body-sanitization)) and `options` is the `RouterOptions` object passed to `createAuthRouter`. Use `buildUiLink` to generate correct redirect URLs regardless of whether the built-in UI is enabled:
 
 ```typescript
 import { PasswordService, TokenService, buildUiLink } from '@awesome-lang-auth/node';
@@ -1223,7 +1223,7 @@ app.use('/auth', auth.router({
 
 > **Note:** The `options` parameter is backward compatible — existing callbacks declared with only `(data, config)` continue to work unchanged because JavaScript ignores extra arguments passed to a function.
 
-**Request body** — any JSON object; `data` is the raw `req.body`.
+**Request body** — any JSON object; `data` is a copy of `req.body` without the stripped fields listed below. Values are not validated: check every field you read.
 
 **Response on success (201):**
 ```json
@@ -1232,9 +1232,59 @@ app.use('/auth', auth.router({
 
 After creating the user, if `config.email.sendWelcome` or `config.email.mailer` is configured, a welcome email is sent automatically.
 
-`config.email.sendWelcome(to, data)` receives the request data **without** the `password` field, with `onRegister` and with the built-in handler alike.
+`config.email.sendWelcome(to, data)` receives the **same sanitized `data` object** that `onRegister` received (including values the callback attached to it, such as `data.verificationLink`), **without** the `password` field, with `onRegister` and with the built-in handler alike. Stripped fields (`role`, `isAdmin`, tokens, ...) never reach it.
 
 > **Tip:** Omit `onRegister` (and `defaultRegister`) entirely for admin-only or invite-only systems where users should not be able to sign up themselves.
+
+### Register body sanitization
+
+> **Security: never spread the body into the user.** A callback such as
+> `onRegister: async (data) => userStore.create({ ...data, password: await hash(data.password) })`
+> (or `role: data.role || 'user'`) lets anyone register as an administrator with one request:
+>
+> ```
+> POST /auth/register  {"email":"a@x.test","password":"Str0ngPass!","role":"admin"}
+> ```
+>
+> The same request could set `isAdmin: true` (trusted by the `'is-admin-flag'` admin policy),
+> `isEmailVerified: true`, `phoneNumber` (the SMS second-factor destination) or a reset /
+> magic-link token the attacker then uses. Since **1.12.0** the router strips these fields
+> before `onRegister` runs, but pick the fields you store explicitly anyway.
+
+Before `onRegister` (and `sendWelcome`) sees the body, `POST /auth/register` removes these **top-level** keys:
+
+| Stripped | Keys |
+|---|---|
+| `BaseUser` system fields | every `BaseUser` field except `email`, `password`, `firstName` and `lastName`: `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, `require2FA`, `isTotpEnabled`, `totpSecret`, `lastLogin`, `pendingEmail`, and every token / code field with its expiry (`refreshToken`, `resetToken`, `magicLinkToken`, `smsCode`, `emailVerificationToken`, `emailVerificationDeadline`, `emailChangeToken`, `accountLinkToken`, `accountLinkPendingEmail`, `accountLinkPendingProvider`, ...) |
+| Common privileged keys | `roles`, `permissions`, `scopes`, `tenantId`, `tenantIds`, `isActive`, `isSuperAdmin`, `metadata`, `apiKey`, `apiKeys`, `_id`, `__v`, `createdAt`, `updatedAt`, `deletedAt` |
+| Prototype keys | `__proto__`, `constructor`, `prototype` (always, even when allowed) |
+| Your extra keys | the entries of `registerDenyFields` |
+
+Every other key (for example `company` or `acceptTerms`) passes through unchanged and unvalidated. Keys are compared exactly and case-sensitively (`Role` is not `role`), and nested objects are not inspected. When something is stripped, the router writes one line to `stderr` per request with the **names only**, never values or the e-mail address:
+
+```
+[awesome-node-auth] WARN: POST /register ignored body fields: isAdmin, role
+```
+
+Two `RouterOptions` tune the list:
+
+| Option | Type | Effect |
+|---|---|---|
+| `registerDenyFields` | `string[]` | Extra top-level keys to strip, in addition to the lists above. |
+| `registerAllowFields` | `string[]` | Keys that are stripped by default but that your app accepts from the sign-up body, for example `['role']` when the user picks an account type. **Validate them in `onRegister`** (for example `role` must be one of the self-service roles, never `admin`). Each entry writes a `WARN` line to `stderr` when the router is created. A key also listed in `registerDenyFields` stays stripped, and prototype keys can never be allowed. |
+
+```typescript
+app.use('/auth', auth.router({
+  registerAllowFields: ['role'],
+  onRegister: async (data, config) => {
+    const role = data.role === 'host' ? 'host' : 'guest'; // never trust the client value
+    const hash = await passwordService.hash(String(data.password), config.bcryptSaltRounds);
+    return userStore.create({ email: String(data.email), password: hash, role });
+  },
+}));
+```
+
+`data` is typed `RegisterInput` (exported from the package): `email`, `password`, `firstName` and `lastName` are `unknown`, like any other key.
 
 ### Default register handler
 
@@ -1251,7 +1301,7 @@ The handler:
 3. hashes `password` with `PasswordService` (`config.bcryptSaltRounds`);
 4. calls `userStore.create({ email, password: hash, firstName, lastName })` with an **allow-list** of fields: `firstName` and `lastName` are copied only when they are strings, and every other field of the request body is dropped (not rejected) — for example `id`, `role`, `isAdmin`, `isEmailVerified`, `loginProvider`, `providerAccountId`, `phoneNumber`, token fields, `tenantId` or `metadata`.
 
-The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active. At startup the router writes an `INFO` line to `stderr` when the built-in handler is mounted, or a `WARN` line when `defaultRegister` is set but `userStore.create` is not implemented. To accept other fields, provide an `onRegister` callback that picks them explicitly, as in the example above.
+The welcome email and the `201` response are the same as with a custom callback, and the built-in UI and `GET /auth/openapi.json` expose the register endpoint whenever either handler is active. At startup the router writes an `INFO` line to `stderr` when the built-in handler is mounted, or a `WARN` line when `defaultRegister` is set but `userStore.create` is not implemented. To accept other fields, provide an `onRegister` callback that picks them explicitly, as in the example above; system fields such as `role` or `tenantId` also need [`registerAllowFields`](#register-body-sanitization).
 
 ## Session Cleanup (Cron)
 
@@ -3133,7 +3183,9 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `oauthStrategies` | `GenericOAuthStrategy[]` | Enables `GET /auth/oauth/:name` for any additional provider |
 | `linkedAccountsStore` | `ILinkedAccountsStore` | Enables `GET /auth/linked-accounts`, `DELETE /auth/linked-accounts/:provider/:id`, `POST /auth/link-request`, and `POST /auth/link-verify` |
 | `settingsStore` | `ISettingsStore` | Enables system 2FA policy check in `POST /auth/2fa/disable` |
-| `onRegister` | `(data, config, options) => Promise<BaseUser>` | Enables `POST /auth/register` |
+| `onRegister` | `(data: RegisterInput, config, options) => Promise<BaseUser>` | Enables `POST /auth/register`; `data` is the body without system-managed fields ([sanitization](#register-body-sanitization)) |
+| `registerDenyFields` | `string[]` | Extra body keys stripped before `onRegister` and `sendWelcome` |
+| `registerAllowFields` | `string[]` | Default-stripped keys (e.g. `role`) accepted from the sign-up body; validate them in `onRegister`. WARN at mount |
 | `defaultRegister` | `boolean` | Enables `POST /auth/register` with the [built-in handler](#default-register-handler) (allow-listed fields) when `onRegister` is omitted. Default: `false` |
 | `metadataStore` | `IUserMetadataStore` | Adds `metadata` field to `GET /me` response |
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |
