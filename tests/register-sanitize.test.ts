@@ -292,6 +292,39 @@ describe('POST /auth/register sanitizes the body before onRegister', () => {
     expect(({} as Record<string, unknown>).isAdmin).toBeUndefined();
   });
 
+  it('REGRESSION-REGISTER-CUSTOM-MASS-ASSIGNMENT: registerAllowFields mount lines do not claim an entry denied or not stripped by default is accepted', async () => {
+    const store = new InMemoryUserStore();
+    const captured: Array<Record<string, unknown>> = [];
+    const onRegister = vi.fn(async (data: Record<string, unknown>) => {
+      captured.push({ ...data });
+      return store.create({ email: String(data.email) });
+    });
+    const app = buildApp(store, {
+      onRegister,
+      registerAllowFields: ['company', 'role', 'email', 'tenantId'],
+      registerDenyFields: ['role'],
+    });
+
+    const lines = stderrLines(stderrSpy);
+    // Only tenantId (stripped by default, not denied) is announced as accepted.
+    expect(lines.filter((l) => l.includes('accepts the protected field'))).toEqual([
+      '[awesome-node-auth] WARN: POST /register accepts the protected field "tenantId" from the request body (registerAllowFields); validate it in onRegister.\n',
+    ]);
+    expect(lines).toContain('[awesome-node-auth] WARN: registerAllowFields lists "role", which is also in registerDenyFields; it stays stripped.\n');
+    expect(lines).toContain('[awesome-node-auth] INFO: registerAllowFields lists "company", which is not stripped by default; the entry has no effect.\n');
+    expect(lines).toContain('[awesome-node-auth] INFO: registerAllowFields lists "email", which is not stripped by default; the entry has no effect.\n');
+
+    const res = await request(await listen(app))
+      .post('/auth/register')
+      .send({ email: EMAIL, password: PASSWORD, company: 'ACME', role: 'admin', tenantId: 't1' });
+    expect(res.status).toBe(201);
+    // The mount lines match the request-time behaviour: deny beats allow.
+    expect(captured[0]).not.toHaveProperty('role');
+    expect(captured[0]['company']).toBe('ACME');
+    expect(captured[0]['tenantId']).toBe('t1');
+    expect(stderrLines(stderrSpy)).toContain('[awesome-node-auth] WARN: POST /register ignored body fields: role\n');
+  });
+
   it('does not write registerAllowFields mount lines when POST /register is not mounted by onRegister', () => {
     const store = new InMemoryUserStore();
     buildApp(store, { registerAllowFields: ['role'] });

@@ -1271,7 +1271,7 @@ Two `RouterOptions` tune the list:
 | Option | Type | Effect |
 |---|---|---|
 | `registerDenyFields` | `string[]` | Extra top-level keys to strip, in addition to the lists above. |
-| `registerAllowFields` | `string[]` | Keys that are stripped by default but that your app accepts from the sign-up body, for example `['role']` when the user picks an account type. **Validate them in `onRegister`** (for example `role` must be one of the self-service roles, never `admin`). Each entry writes a `WARN` line to `stderr` when the router is created. A key also listed in `registerDenyFields` stays stripped, and prototype keys can never be allowed. |
+| `registerAllowFields` | `string[]` | Keys that are stripped by default but that your app accepts from the sign-up body, for example `['role']` when the user picks an account type. **Validate them in `onRegister`** (for example `role` must be one of the self-service roles, never `admin`). Each entry writes a `WARN` line to `stderr` when the router is created. A key also listed in `registerDenyFields` stays stripped (its mount line says so), and prototype keys can never be allowed. An entry that is not stripped by default (for example `company`, or a typo such as `Role`) has no effect and writes an `INFO` line instead. |
 
 ```typescript
 app.use('/auth', auth.router({
@@ -3185,7 +3185,7 @@ All options passed to `auth.router(options)` (or `createAuthRouter(store, config
 | `settingsStore` | `ISettingsStore` | Enables system 2FA policy check in `POST /auth/2fa/disable` |
 | `onRegister` | `(data: RegisterInput, config, options) => Promise<BaseUser>` | Enables `POST /auth/register`; `data` is the body without system-managed fields ([sanitization](#register-body-sanitization)) |
 | `registerDenyFields` | `string[]` | Extra body keys stripped before `onRegister` and `sendWelcome` |
-| `registerAllowFields` | `string[]` | Default-stripped keys (e.g. `role`) accepted from the sign-up body; validate them in `onRegister`. WARN at mount |
+| `registerAllowFields` | `string[]` | Default-stripped keys (e.g. `role`) accepted from the sign-up body; validate them in `onRegister`. WARN at mount (`registerDenyFields` wins) |
 | `defaultRegister` | `boolean` | Enables `POST /auth/register` with the [built-in handler](#default-register-handler) (allow-listed fields) when `onRegister` is omitted. Default: `false` |
 | `metadataStore` | `IUserMetadataStore` | Adds `metadata` field to `GET /me` response |
 | `rbacStore` | `IRolesPermissionsStore` | Adds `roles` and `permissions` fields to `GET /me` response |

@@ -71,6 +71,15 @@ const DEFAULT_DENY: ReadonlySet<string> = new Set<string>([...SYSTEM_KEYS, ...CO
 const PROTOTYPE_KEY_SET: ReadonlySet<string> = new Set<string>(PROTOTYPE_KEYS);
 
 /**
+ * Whether `key` is stripped from the sign-up body by default: a `'system'` key of
+ * {@link BASE_USER_FIELD_CLASS} or one of {@link COMMON_PRIVILEGED_KEYS}.  Prototype
+ * keys are not included: they are always stripped and cannot be allowed.
+ */
+export function isDefaultStrippedRegisterField(key: string): boolean {
+  return DEFAULT_DENY.has(key);
+}
+
+/**
  * The `data` argument of `RouterOptions.onRegister`: the sign-up request body
  * without system-managed fields.  Values are `unknown` because they come from
  * the client: validate them before use.

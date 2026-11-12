@@ -31,7 +31,7 @@ import { JwksService } from '../services/jwks.service';
 import { AuthEventBus } from '../events/auth-event-bus';
 import { AuthEventNames } from '../events/auth-event-names';
 import { publishRequestEvent as publishRouterEvent, eventEmail, oauthConflictEventData } from './router-events';
-import { sanitizeRegisterBody, type RegisterInput } from './register-sanitize';
+import { isDefaultStrippedRegisterField, sanitizeRegisterBody, type RegisterInput } from './register-sanitize';
 
 export interface DeleteUserContext {
   req: Request;
@@ -210,8 +210,9 @@ export interface RouterOptions {
    * Keys that are stripped by default (BaseUser system fields or common privileged keys such as
    * `tenantId`) but that this app explicitly accepts from the sign-up body, for example `['role']`
    * when the user picks an account type. The app must validate them in `onRegister`.
-   * Each entry logs a WARN line at mount. Prototype keys can never be allowed, and an entry
-   * that is also in `registerDenyFields` stays stripped.
+   * Each entry that takes effect logs a WARN line at mount. Prototype keys can never be allowed,
+   * and an entry that is also in `registerDenyFields` stays stripped (its mount line says so).
+   * An entry that is not stripped by default has no effect and logs an INFO line instead.
    */
   registerAllowFields?: string[];
 
@@ -958,10 +959,25 @@ export function createAuthRouter(
     }
   }
   if (registerHandler && options.onRegister) {
+    const registerDeny = new Set<string>(options.registerDenyFields ?? []);
     for (const field of options.registerAllowFields ?? []) {
       if (field === '__proto__' || field === 'constructor' || field === 'prototype') {
         process.stderr.write(
           `[awesome-node-auth] WARN: registerAllowFields lists ${JSON.stringify(field)}, which can never be accepted from the request body; it stays stripped.\n`,
+        );
+        continue;
+      }
+      if (registerDeny.has(field)) {
+        // registerDenyFields wins over registerAllowFields: the key is still stripped.
+        process.stderr.write(
+          `[awesome-node-auth] WARN: registerAllowFields lists ${JSON.stringify(field)}, which is also in registerDenyFields; it stays stripped.\n`,
+        );
+        continue;
+      }
+      if (!isDefaultStrippedRegisterField(field)) {
+        // Not stripped by default, so allowing it changes nothing (often a typo such as "Role").
+        process.stderr.write(
+          `[awesome-node-auth] INFO: registerAllowFields lists ${JSON.stringify(field)}, which is not stripped by default; the entry has no effect.\n`,
         );
         continue;
       }
