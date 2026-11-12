@@ -1,6 +1,6 @@
 {
   "name": "awesome-node-auth",
-  "version": "1.10.1",
+  "version": "1.10.2",
   "description": "Renamed to @awesome-lang-auth/node. This package only re-exports @awesome-lang-auth/node; install that instead.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -30,6 +30,6 @@
   "author": "Nicola Brecciaroli",
   "license": "MIT",
   "dependencies": {
-    "@awesome-lang-auth/node": "^1.10.1"
+    "@awesome-lang-auth/node": "^1.12.0"
   }
 }

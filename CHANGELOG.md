@@ -3,7 +3,38 @@
 All notable changes to **awesome-node-auth** are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.0] — 2026-11-12
+
+### Security
+- **`POST /auth/register` no longer passes the raw request body to `onRegister`** (Issue #40): the router now strips system-managed fields **before** the callback runs.
+  - **What was reachable:** the callback received `req.body` as-is, so the natural `userStore.create({ ...data, password: hash })` (or `role: data.role || 'user'`) let anyone register as an administrator with one anonymous request, `{"email":"a@x.test","password":"…","role":"admin"}`. The same request could set `isAdmin: true` (trusted by the `'is-admin-flag'` admin policy), `isEmailVerified: true` (skipping verification), `loginProvider`, `isTotpEnabled`, `require2FA`, `phoneNumber` (the SMS second-factor destination, otherwise set only by the authenticated `POST /auth/add-phone`), and the reset, magic-link and email-change tokens with their expiries, which the attacker could then use.
+  - **What is stripped now:** every `BaseUser` field except `email`, `password`, `firstName` and `lastName`; common privileged keys of typical stores (`roles`, `permissions`, `scopes`, `tenantId`, `tenantIds`, `isActive`, `isSuperAdmin`, `metadata`, `apiKey`, `apiKeys`, `_id`, `__v`, `createdAt`, `updatedAt`, `deletedAt`); `__proto__`, `constructor` and `prototype`. Other keys (`company`, `acceptTerms`, …) still pass through. Keys are compared exactly and case-sensitively; only top-level keys are inspected.
+  - When fields are stripped, one `WARN` line per request goes to `stderr` with the field **names only** (never values, never the e-mail address): `[awesome-node-auth] WARN: POST /register ignored body fields: isAdmin, role`.
+  - **`config.email.sendWelcome`** receives the same sanitized object (minus `password`), including values `onRegister` attached to it such as `data.verificationLink`. Before, it received every privileged field of the raw body.
+  - The classification lives in `src/router/register-sanitize.ts` (`BASE_USER_FIELD_CLASS`), declared with `satisfies Record<keyof BaseUser, 'input' | 'system'>`: a field added to `BaseUser` without being classified fails `tsc`, so it cannot silently become mass-assignable.
+  - The built-in handler (`defaultRegister: true`) keeps its own allow-list unchanged.
+- **Legacy bridge `awesome-node-auth` 1.10.2** (source in `legacy/awesome-node-auth`): the bridge now depends on `@awesome-lang-auth/node@^1.12.0` (was `^1.10.1`), so installing it cannot resolve a version without this fix. The bridge is published manually after 1.12.0 (the publish workflow covers the root package only); until then the deprecated name on npm stays at `1.10.0`, the full library without this fix. The 1.10.1 bridge was never published.
+
+### Added
+- **`RouterOptions.registerDenyFields`** (`string[]`): extra top-level keys stripped before `onRegister` and `sendWelcome` see the body.
+- **`RouterOptions.registerAllowFields`** (`string[]`): keys stripped by default that the app explicitly accepts from the sign-up body, for example `['role']` when the user picks an account type. The app must validate them in `onRegister`. Each entry writes a `WARN` line to `stderr` when the router is created. An entry also in `registerDenyFields` stays stripped and its mount line says so; prototype keys can never be allowed. An entry that is not stripped by default has no effect and writes an `INFO` line instead.
+- **`RegisterInput`** type, exported from the package: the type of the `data` argument of `onRegister` (`email`, `password`, `firstName`, `lastName` and any other key, all `unknown`).
+
+### Breaking
+- **Apps that read `role`, `isAdmin`, `phoneNumber`, `tenantId` or any other stripped field from the sign-up body** no longer receive it in `onRegister`. List each such field in `registerAllowFields` (and validate its value in the callback) to restore it. This is the only behaviour removed, and it is the privilege-escalation surface.
+- **`onRegister` is typed `(data: RegisterInput, config, options)`** instead of `(data: Record<string, unknown>, …)`. Callbacks annotated with `Record<string, unknown>` still compile. A callback with an unannotated `data` that spreads it into `userStore.create({ ...data, … })` now fails to compile (`email` is `unknown`, not `string`): pick and validate the fields instead. Under `strict` (`strictFunctionTypes`), a callback that declares a narrower `data` type, such as `(data: { email?: string; password?: string }) => Promise<BaseUser>`, also fails with TS2322: widen the parameter to `RegisterInput` (or `Record<string, unknown>`) and validate the values, or cast.
+
+### Documentation
+- `README.detailed.md`: new "Register body sanitization" section with a "never spread the body into the user" security box, the list of stripped keys and the two options; `sendWelcome` now documented as receiving the sanitized data; `RouterOptions` table updated. `README.md` feature list and the `onRegister` JSDoc updated (the JSDoc example picks fields explicitly).
+
+### Tests
+- `tests/register-sanitize.test.ts` (tagged `REGRESSION-REGISTER-CUSTOM-MASS-ASSIGNMENT`): the vulnerable spread callback, the stderr line, a raw JSON `__proto__` key, `registerDenyFields`, `registerAllowFields` (mount warnings, prototype keys, entries also in `registerDenyFields`, entries not stripped by default), `sendWelcome` data, and unit tests of `sanitizeRegisterBody`.
+- `tests/register-sanitize.types.test.ts`: compiles fixtures with the TypeScript API to prove that a `BaseUser` key missing from `BASE_USER_FIELD_CLASS` fails to compile.
+- **Follow-up:** when PR #37 (`issueSessionOnRegister`) lands, add the test that the session issued by `POST /register` with the vulnerable callback carries no `role: 'admin'` and no `isAdmin: true` (Issue #40, acceptance criterion 9).
+
+## [1.11.0] — not published
+
+Not published separately: these changes ship in 1.12.0.
 
 ### Added
 - **`auth.js` and `/ui/config` are always served** (family rule: every backend serves the browser client at the same route): as soon as the auth router is mounted, `GET <apiPrefix>/ui/auth.js` (default `/auth/ui/auth.js`) and `GET <apiPrefix>/ui/config` answer `200`, with or without `ui.enabled`. This holds for `auth.router()` / `createAuthRouter()` and for `buildAllRouters()`. The mount prefix moves both, together with the pages.
@@ -625,3 +656,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) · Versioning: 
 | 1.9.0 | 2026-04-29 | IdP mode (RS256 + JWKS), Resource Server middleware, Flutter client support |
 | 1.10.0 | 2026-09-25 | `buildAllRouters()`, admin promote/revoke, automatic event publication, 2FA and admin token hardening |
 | 1.10.1 | 2026-09-25 | Published as `@awesome-lang-auth/node`; repository moved to the `awesome-lang-auth` organization |
+| 1.12.0 | 2026-11-12 | Register body sanitization before `onRegister` (mass-assignment fix), always-served `auth.js` and `/ui/config` (from the unpublished 1.11.0) |
